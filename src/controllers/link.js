@@ -84,7 +84,8 @@ const redirectToLongLink = async (req, res) => {
     // 重定向到长链接
     res.redirect(link.longUrl)
   } catch (err) {
-    res.status(500).send({ success: false, message: "服务器错误" })
+    // 如果短链接未找到，重定向到404
+    res.redirect("*")
   }
 }
 
