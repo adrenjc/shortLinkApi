@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "cross-env NODE_ENV=development node server.js",
     "start:prod": "cross-env NODE_ENV=production node server.js"
   },
   "keywords": [],
@@ -17,9 +17,11 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "express-rate-limit": "^6.7.0",
     "hashids": "^2.3.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.10.0"
+    "mongoose": "^8.10.0",
+    "openai": "^4.85.1"
   },
   "devDependencies": {
     "cross-env": "^7.0.3"

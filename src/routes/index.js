@@ -8,6 +8,13 @@ const {
   deleteLink,
   redirectToLongLink,
 } = require("../controllers/link")
+const {
+  streamChat,
+  chatLimiter,
+  getChats,
+  getChatHistory,
+  deleteChat,
+} = require("../controllers/chat")
 
 require("dotenv").config()
 const router = express.Router()
@@ -24,5 +31,10 @@ router.use(auth)
 router.route("/links").post(createShortLink).get(getLinks)
 
 router.route("/links/:id").delete(deleteLink)
+
+router.get("/chats", getChats)
+router.get("/chats/:chatId", getChatHistory)
+router.delete("/chats/:chatId", deleteChat)
+router.post("/chat", streamChat)
 
 module.exports = router
