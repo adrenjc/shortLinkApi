@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "start": "cross-env NODE_ENV=development node server.js",
-    "start:prod": "cross-env NODE_ENV=production node server.js"
+    "start:prod": "cross-env NODE_ENV=production node server.js",
+    "deploy": "pm2 reload ecosystem.config.js"
   },
   "keywords": [],
   "author": "",
@@ -14,14 +15,18 @@
     "@octokit/rest": "^21.1.0",
     "axios": "^1.7.9",
     "bcryptjs": "^2.4.3",
+    "compression": "^1.7.4",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^6.7.0",
     "hashids": "^2.3.0",
+    "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.10.0",
-    "openai": "^4.85.1"
+    "morgan": "^1.10.0",
+    "openai": "^4.85.1",
+    "winston": "^3.11.0"
   },
   "devDependencies": {
     "cross-env": "^7.0.3"
