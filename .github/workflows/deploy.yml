@@ -30,3 +30,4 @@ jobs:
             git pull
             yarn install
             pm2 reload shortlink-backend
+        shell: pwsh # 使用 PowerShell
