@@ -60,7 +60,7 @@ const createShortLink = async (req, res) => {
     const newLink = new Link({
       longUrl,
       shortKey,
-      shortUrl: `http://${process.env.BASE_URL}/r/${shortKey}`,
+      shortUrl: `https://${window.location.hostname}/r/${shortKey}`,
       createdBy: req.user.id,
     })
 
