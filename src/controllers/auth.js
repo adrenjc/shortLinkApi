@@ -5,7 +5,7 @@ const bcrypt = require("bcryptjs")
 // 用户注册
 exports.register = async (req, res) => {
   try {
-    const { username, password } = req.body
+    const { username, password, email, nickname } = req.body
 
     // 检查用户名是否存在
     let user = await User.findOne({ username })
@@ -13,17 +13,34 @@ exports.register = async (req, res) => {
       return res.status(400).json({ success: false, message: "用户已经存在" })
     }
 
-    // 创建新用户
-    user = new User({ username, password })
+    // 创建新用户，只传入必需字段和已提供的可选字段
+    const userData = {
+      username,
+      password,
+      ...(email && { email }), // 只有当 email 存在时才添加
+      ...(nickname && { nickname }), // 只有当 nickname 存在时才添加
+    }
+
+    user = new User(userData)
     await user.save()
 
     // 生成JWT令牌
-    const payload = { user: { id: user.id } }
+    const payload = {
+      user: {
+        id: user.id,
+        role: user.role,
+      },
+    }
+
     const token = jwt.sign(payload, process.env.JWT_SECRET, {
       expiresIn: "24h",
     })
 
-    res.json({ token })
+    res.json({
+      success: true,
+      token,
+      message: "注册成功",
+    })
   } catch (err) {
     console.error(err.message)
     res.status(500).send({ success: false, message: "服务器错误" })
@@ -45,7 +62,7 @@ exports.login = async (req, res) => {
     }
 
     // 验证密码
-    const isMatch = await bcrypt.compare(password, user.password)
+    const isMatch = await user.comparePassword(password)
     if (!isMatch) {
       return res.status(400).json({
         success: false,
@@ -53,20 +70,29 @@ exports.login = async (req, res) => {
       })
     }
 
+    // 更新登录信息
+    user.lastLoginTime = new Date()
+    user.lastLoginIp = req.ip
+    user.loginCount += 1
+    await user.save()
+
     // 生成JWT令牌
-    const payload = { user: { id: user.id } }
+    const payload = {
+      user: {
+        id: user.id,
+        role: user.role,
+      },
+    }
+
     const token = jwt.sign(payload, process.env.JWT_SECRET, {
       expiresIn: "24h",
     })
 
     // 返回用户信息和令牌
     res.json({
-      token,
       success: true,
-      user: {
-        id: user.id,
-        username: user.username,
-      },
+      token,
+      user: user.fullProfile,
     })
   } catch (err) {
     console.error(err.message)

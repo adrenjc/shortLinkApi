@@ -15,6 +15,7 @@ const {
   getChatHistory,
   deleteChat,
 } = require("../controllers/chat")
+const { getAllUsers, updateUser } = require("../controllers/user")
 
 require("dotenv").config()
 const router = express.Router()
@@ -36,5 +37,9 @@ router.get("/chats", getChats)
 router.get("/chats/:chatId", getChatHistory)
 router.delete("/chats/:chatId", deleteChat)
 router.post("/chat", streamChat)
+
+// 仅限管理员访问的路由
+router.get("/users", getAllUsers)
+router.put("/users/:id", updateUser)
 
 module.exports = router
