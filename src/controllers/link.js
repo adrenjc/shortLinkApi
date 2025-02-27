@@ -1,4 +1,5 @@
 const Link = require("../models/Link")
+const config = require("../config/config")
 
 // const createShortLink = async (req, res) => {
 //   const { longUrl } = req.body
@@ -47,26 +48,51 @@ const generateShortKey = (longUrl) => {
 }
 
 const createShortLink = async (req, res) => {
-  const { longUrl } = req.body
+  const { longUrl, customDomain } = req.body // 直接从 req.body 解构
 
-  console.log("Received longUrl:", longUrl)
+  console.log("Received request body:", req.body) // 添加日志
 
   if (!longUrl) {
     return res.status(400).send({ success: false, message: "长链接不能为空" })
   }
 
   try {
-    const shortKey = generateShortKey(longUrl) // 生成与用户ID关联的短链接
+    const shortKey = generateShortKey(longUrl)
+
+    // 验证自定义域名格式（如果有）
+    if (customDomain) {
+      const domainRegex =
+        /^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/
+      if (!domainRegex.test(customDomain)) {
+        return res.status(400).json({
+          success: false,
+          message: "无效的域名格式",
+        })
+      }
+    }
+
+    // 使用自定义域名或默认域名
+    const domain = customDomain || config.domain
+    const baseUrl = customDomain ? `https://${customDomain}` : config.baseUrl
+
     const newLink = new Link({
       longUrl,
       shortKey,
-      shortUrl: `https://${window.location.hostname}/r/${shortKey}`,
+      customDomain: customDomain || null,
+      shortUrl: `${baseUrl}/r/${shortKey}`,
       createdBy: req.user.id,
     })
 
     await newLink.save()
     res.json(newLink)
   } catch (error) {
+    // 处理重复短链接的错误
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "该短链接已存在，请重试",
+      })
+    }
     console.error("创建短链接错误:", error)
     res.status(500).send({ success: false, message: "服务器错误" })
   }
@@ -74,18 +100,26 @@ const createShortLink = async (req, res) => {
 
 const redirectToLongLink = async (req, res) => {
   const { shortKey } = req.params
-  console.log("req", req)
+  const host = req.get("host") // 获取请求的域名
+
   try {
-    const link = await Link.findOne({ shortKey })
+    // 根据短链接和域名查找
+    const link = await Link.findOne({
+      shortKey,
+      $or: [
+        { customDomain: host },
+        { customDomain: null }, // 如果是默认域名
+      ],
+    })
+
     if (!link) {
       return res.status(404).send({ success: false, message: "短链接未找到" })
     }
 
-    // 重定向到长链接
     res.redirect(link.longUrl)
   } catch (err) {
-    // 如果短链接未找到，重定向到404
-    res.redirect("*")
+    console.error("重定向错误:", err)
+    res.redirect("/404")
   }
 }
 
