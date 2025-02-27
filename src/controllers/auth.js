@@ -1,6 +1,7 @@
 const User = require("../models/User")
 const jwt = require("jsonwebtoken")
 const bcrypt = require("bcryptjs")
+const { createAuditLog } = require("./auditLog")
 
 // 用户注册
 exports.register = async (req, res) => {
@@ -23,6 +24,16 @@ exports.register = async (req, res) => {
 
     user = new User(userData)
     await user.save()
+
+    // 添加审计日志
+    await createAuditLog({
+      userId: user.id,
+      action: "REGISTER",
+      resourceType: "USER",
+      resourceId: user.id,
+      description: `新用户注册: ${user.username}`,
+      req,
+    })
 
     // 生成JWT令牌
     const payload = {
@@ -75,6 +86,16 @@ exports.login = async (req, res) => {
     user.lastLoginIp = req.ip
     user.loginCount += 1
     await user.save()
+
+    // 添加审计日志
+    await createAuditLog({
+      userId: user.id,
+      action: "LOGIN",
+      resourceType: "USER",
+      resourceId: user.id,
+      description: `用户登录: ${user.username}`,
+      req,
+    })
 
     // 生成JWT令牌
     const payload = {

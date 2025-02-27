@@ -22,6 +22,7 @@ const {
   getDomains,
   deleteDomain,
 } = require("../controllers/domain")
+const { getAuditLogs, getAuditLogStats } = require("../controllers/auditLog")
 
 require("dotenv").config()
 const router = express.Router()
@@ -53,5 +54,9 @@ router.post("/domains", addDomain)
 router.post("/domains/:domain/verify", verifyDomain)
 router.get("/domains", getDomains)
 router.delete("/domains/:domain", deleteDomain)
+
+// 审计日志路由 - 仅管理员可访问
+router.get("/audit-logs", getAuditLogs)
+router.get("/audit-logs/stats", getAuditLogStats)
 
 module.exports = router

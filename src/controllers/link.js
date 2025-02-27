@@ -1,5 +1,6 @@
 const Link = require("../models/Link")
 const config = require("../config/config")
+const { createAuditLog } = require("./auditLog")
 
 const generateShortKey = (longUrl) => {
   // 使用时间戳和长链接生成短链接
@@ -35,6 +36,18 @@ const createShortLink = async (req, res) => {
         createdBy: req.user.id,
       })
       await newLink.save()
+
+      // 添加审计日志
+      await createAuditLog({
+        userId: req.user.id,
+        action: "CREATE_LINK",
+        resourceType: "LINK",
+        resourceId: newLink._id,
+        description: `创建短链接: ${newLink.shortUrl}`,
+        metadata: { longUrl: newLink.longUrl },
+        req,
+      })
+
       res.json(newLink)
       return
     }
@@ -53,6 +66,18 @@ const createShortLink = async (req, res) => {
     })
 
     await newLink.save()
+
+    // 添加审计日志
+    await createAuditLog({
+      userId: req.user.id,
+      action: "CREATE_LINK",
+      resourceType: "LINK",
+      resourceId: newLink._id,
+      description: `创建短链接: ${newLink.shortUrl}`,
+      metadata: { longUrl: newLink.longUrl },
+      req,
+    })
+
     res.json(newLink)
   } catch (error) {
     // 处理重复短链接的错误
@@ -137,6 +162,17 @@ const deleteLink = async (req, res) => {
     if (!link) {
       return res.status(404).json({ success: false, message: "链接未找到" })
     }
+
+    // 添加审计日志
+    await createAuditLog({
+      userId: req.user.id,
+      action: "DELETE_LINK",
+      resourceType: "LINK",
+      resourceId: link._id,
+      description: `删除短链接: ${link.shortUrl}`,
+      metadata: { longUrl: link.longUrl },
+      req,
+    })
 
     res.json({ success: false, message: "链接已删除" })
   } catch (err) {
