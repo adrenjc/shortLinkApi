@@ -73,6 +73,12 @@ const redirectToLongLink = async (req, res) => {
   const env = process.env.NODE_ENV || "development"
   const isDev = config.getConfig(env).isDev
 
+  console.log("Redirect request:", {
+    shortKey,
+    host,
+    isDev,
+  })
+
   try {
     let link
 
@@ -81,23 +87,25 @@ const redirectToLongLink = async (req, res) => {
       link = await Link.findOne({ shortKey })
     } else {
       // 生产环境下的域名匹配逻辑
+      // 先尝试查找完全匹配的自定义域名
       link = await Link.findOne({
         shortKey,
-        customDomain: host,
+        $or: [{ customDomain: host }, { customDomain: null }],
       })
 
-      if (!link) {
-        link = await Link.findOne({
-          shortKey,
-          customDomain: null,
-        })
-      }
+      console.log("Found link:", link)
     }
 
     if (!link) {
+      console.log("Link not found for:", {
+        shortKey,
+        host,
+        isDev,
+      })
       return res.status(404).send({ success: false, message: "短链接未找到" })
     }
 
+    console.log("Redirecting to:", link.longUrl)
     res.redirect(link.longUrl)
   } catch (err) {
     console.error("重定向错误:", err)
