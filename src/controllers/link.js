@@ -9,8 +9,10 @@ const generateShortKey = (longUrl) => {
 
 const createShortLink = async (req, res) => {
   const { longUrl, customDomain } = req.body
+  const env = process.env.NODE_ENV || "development"
+  const isDev = config.getConfig(env).isDev
 
-  console.log("Received request body:", req.body) // 添加日志
+  console.log("Received request body:", req.body)
 
   if (!longUrl) {
     return res.status(400).send({ success: false, message: "长链接不能为空" })
@@ -19,8 +21,25 @@ const createShortLink = async (req, res) => {
   try {
     const shortKey = generateShortKey(longUrl)
 
-    // 使用自定义域名或当前请求的域名
-    const currentDomain = req.get("host")
+    // 获取当前域名，并去除 www 前缀
+    const currentDomain = req.get("host").replace(/^www\./, "")
+
+    // 开发环境下的处理
+    if (isDev) {
+      const baseUrl = `http://${currentDomain}/api`
+      const newLink = new Link({
+        longUrl,
+        shortKey,
+        customDomain: customDomain || null,
+        shortUrl: `${baseUrl}/r/${shortKey}`,
+        createdBy: req.user.id,
+      })
+      await newLink.save()
+      res.json(newLink)
+      return
+    }
+
+    // 生产环境的处理
     const baseUrl = customDomain
       ? `https://${customDomain}`
       : `https://${currentDomain}`
@@ -28,7 +47,7 @@ const createShortLink = async (req, res) => {
     const newLink = new Link({
       longUrl,
       shortKey,
-      customDomain: customDomain || currentDomain, // 存储实际使用的域名
+      customDomain: customDomain || null,
       shortUrl: `${baseUrl}/r/${shortKey}`,
       createdBy: req.user.id,
     })
@@ -50,13 +69,35 @@ const createShortLink = async (req, res) => {
 
 const redirectToLongLink = async (req, res) => {
   const { shortKey } = req.params
+  const host = req.get("host").replace(/^www\./, "") // 去除 www 前缀
+  const env = process.env.NODE_ENV || "development"
+  const isDev = config.getConfig(env).isDev
+
   try {
-    const link = await Link.findOne({ shortKey })
+    let link
+
+    if (isDev) {
+      // 开发环境下不考虑自定义域名，直接查找短链接
+      link = await Link.findOne({ shortKey })
+    } else {
+      // 生产环境下的域名匹配逻辑
+      link = await Link.findOne({
+        shortKey,
+        customDomain: host,
+      })
+
+      if (!link) {
+        link = await Link.findOne({
+          shortKey,
+          customDomain: null,
+        })
+      }
+    }
+
     if (!link) {
       return res.status(404).send({ success: false, message: "短链接未找到" })
     }
 
-    // 使用当前访问的域名而不是存储的域名
     res.redirect(link.longUrl)
   } catch (err) {
     console.error("重定向错误:", err)
