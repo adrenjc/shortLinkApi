@@ -53,5 +53,7 @@ const auditLogSchema = new mongoose.Schema({
 // 创建复合索引以提高查询性能
 auditLogSchema.index({ userId: 1, createdAt: -1 })
 auditLogSchema.index({ action: 1, createdAt: -1 })
+auditLogSchema.index({ resourceType: 1, createdAt: -1 })
+auditLogSchema.index({ description: "text" })
 
 module.exports = mongoose.model("AuditLog", auditLogSchema)

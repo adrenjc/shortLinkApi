@@ -32,43 +32,72 @@ const createAuditLog = async ({
 const getAuditLogs = async (req, res) => {
   try {
     const {
-      page = 1,
+      current = 1,
       pageSize = 10,
       userId,
       action,
       startDate,
       endDate,
       resourceType,
-      sort,
-      order,
+      description,
+      sort = "createdAt",
+      order = "descend",
     } = req.query
 
     const query = {}
 
     // 构建查询条件
-    if (userId) query.userId = userId
-    if (action) query.action = action
-    if (resourceType) query.resourceType = resourceType
-    if (startDate || endDate) {
-      query.createdAt = {}
-      if (startDate) query.createdAt.$gte = new Date(startDate)
-      if (endDate) query.createdAt.$lte = new Date(endDate)
+    if (userId) {
+      // 支持用户名模糊搜索
+      const users = await User.find({
+        username: { $regex: userId, $options: "i" },
+      }).select("_id")
+      query.userId = { $in: users.map((user) => user._id) }
     }
 
-    // 构建排序条件
-    let sortOptions = { createdAt: -1 } // 默认按创建时间降序
-    if (sort === "createdAt" && order) {
-      sortOptions = {
-        createdAt: order === "ascend" ? 1 : -1,
+    if (action) {
+      query.action = action
+    }
+
+    if (resourceType) {
+      query.resourceType = resourceType
+    }
+
+    if (description) {
+      query.description = { $regex: description, $options: "i" }
+    }
+
+    // 处理日期范围查询
+    if (startDate || endDate) {
+      query.createdAt = {}
+      if (startDate) {
+        // 设置开始日期为当天的 00:00:00
+        const start = new Date(startDate)
+        start.setHours(0, 0, 0, 0)
+        query.createdAt.$gte = start
+      }
+      if (endDate) {
+        // 设置结束日期为当天的 23:59:59
+        const end = new Date(endDate)
+        end.setHours(23, 59, 59, 999)
+        query.createdAt.$lte = end
       }
     }
 
+    // 构建排序条件
+    const sortOptions = {
+      [sort]: order === "ascend" ? 1 : -1,
+    }
+
+    const skip = (parseInt(current) - 1) * parseInt(pageSize)
+
+    // 使用 Promise.all 并行执行查询
     const [logs, total] = await Promise.all([
       AuditLog.find(query)
         .populate("userId", "username nickname")
         .sort(sortOptions)
-        .skip((page - 1) * pageSize)
-        .limit(Number(pageSize)),
+        .skip(skip)
+        .limit(parseInt(pageSize)),
       AuditLog.countDocuments(query),
     ])
 
@@ -76,12 +105,16 @@ const getAuditLogs = async (req, res) => {
       success: true,
       data: logs,
       total,
-      page: Number(page),
-      pageSize: Number(pageSize),
+      page: parseInt(current),
+      pageSize: parseInt(pageSize),
     })
   } catch (error) {
     console.error("获取审计日志失败:", error)
-    res.status(500).json({ success: false, message: "服务器错误" })
+    res.status(500).json({
+      success: false,
+      message: "服务器错误",
+      error: error.message,
+    })
   }
 }
 
