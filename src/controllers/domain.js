@@ -1,6 +1,7 @@
 const Domain = require("../models/Domain")
 const crypto = require("crypto")
 const dns = require("dns").promises
+const { createAuditLog } = require("./auditLog")
 
 // 添加新域名
 const addDomain = async (req, res) => {
@@ -17,6 +18,18 @@ const addDomain = async (req, res) => {
 
     await newDomain.save()
 
+    // 添加审计日志
+    await createAuditLog({
+      userId: req.user.id,
+      action: "CREATE_DOMAIN",
+      resourceType: "DOMAIN",
+      resourceId: newDomain._id,
+      description: `添加域名: ${domain}`,
+      metadata: { domain },
+      req,
+      status: "SUCCESS",
+    })
+
     res.json({
       success: true,
       data: {
@@ -29,7 +42,18 @@ const addDomain = async (req, res) => {
           记录值: ${verificationCode}`,
       },
     })
-  } catch (error) {
+  } catch (err) {
+    // 记录失败的审计日志
+    await createAuditLog({
+      userId: req.user.id,
+      action: "CREATE_DOMAIN",
+      resourceType: "DOMAIN",
+      description: `添加域名失败: ${domain}`,
+      metadata: { domain, error: err.message },
+      req,
+      status: "FAILURE",
+      errorMessage: err.message,
+    })
     res.status(500).json({
       success: false,
       message: "添加域名失败",
@@ -65,6 +89,18 @@ const verifyDomain = async (req, res) => {
         domainRecord.verified = true
         await domainRecord.save()
 
+        // 添加审计日志
+        await createAuditLog({
+          userId: req.user.id,
+          action: "VERIFY_DOMAIN",
+          resourceType: "DOMAIN",
+          resourceId: domainRecord._id,
+          description: `验证域名: ${domain}`,
+          metadata: { domain },
+          req,
+          status: "SUCCESS",
+        })
+
         res.json({
           success: true,
           message: "域名验证成功",
@@ -81,7 +117,18 @@ const verifyDomain = async (req, res) => {
         message: "DNS 记录查询失败，请确保记录已正确添加",
       })
     }
-  } catch (error) {
+  } catch (err) {
+    // 记录失败的审计日志
+    await createAuditLog({
+      userId: req.user.id,
+      action: "VERIFY_DOMAIN",
+      resourceType: "DOMAIN",
+      description: `验证域名失败: ${domain}`,
+      metadata: { domain, error: err.message },
+      req,
+      status: "FAILURE",
+      errorMessage: err.message,
+    })
     res.status(500).json({
       success: false,
       message: "验证过程出错",
@@ -122,11 +169,34 @@ const deleteDomain = async (req, res) => {
       })
     }
 
+    // 添加审计日志
+    await createAuditLog({
+      userId: req.user.id,
+      action: "DELETE_DOMAIN",
+      resourceType: "DOMAIN",
+      resourceId: result._id,
+      description: `删除域名: ${domain}`,
+      metadata: { domain },
+      req,
+      status: "SUCCESS",
+    })
+
     res.json({
       success: true,
       message: "域名删除成功",
     })
-  } catch (error) {
+  } catch (err) {
+    // 记录失败的审计日志
+    await createAuditLog({
+      userId: req.user.id,
+      action: "DELETE_DOMAIN",
+      resourceType: "DOMAIN",
+      description: `删除域名失败: ${domain}`,
+      metadata: { domain, error: err.message },
+      req,
+      status: "FAILURE",
+      errorMessage: err.message,
+    })
     res.status(500).json({
       success: false,
       message: "删除域名失败",

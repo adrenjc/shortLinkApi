@@ -40,6 +40,7 @@ const getAuditLogs = async (req, res) => {
       endDate,
       resourceType,
       description,
+      status,
       sort = "createdAt",
       order = "descend",
     } = req.query
@@ -65,6 +66,11 @@ const getAuditLogs = async (req, res) => {
 
     if (description) {
       query.description = { $regex: description, $options: "i" }
+    }
+
+    // 添加状态查询条件
+    if (status) {
+      query.status = status
     }
 
     // 处理日期范围查询

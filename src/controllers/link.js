@@ -95,26 +95,49 @@ const createShortLink = async (req, res) => {
 const redirectToLongLink = async (req, res) => {
   const { shortKey } = req.params
 
-  console.log("Redirect request:", {
-    shortKey,
-    headers: req.headers,
-  })
-
   try {
-    // 只根据 shortKey 查找，不再关心域名
     const link = await Link.findOne({ shortKey })
-
-    console.log("Found link:", link)
 
     if (!link) {
       console.log("Link not found for shortKey:", shortKey)
       return res.status(404).send({ success: false, message: "短链接未找到" })
     }
 
+    // 添加点击审计日志
+    await createAuditLog({
+      userId: link.createdBy, // 使用链接创建者的ID
+      action: "CLICK_LINK",
+      resourceType: "LINK",
+      resourceId: link._id,
+      description: `访问短链接: ${link.shortUrl}`,
+      metadata: {
+        longUrl: link.longUrl,
+        referer: req.get("referer") || "direct",
+        userAgent: req.get("user-agent"),
+        ipAddress: req.ip,
+      },
+      req,
+      status: "SUCCESS",
+    })
+
     console.log("Redirecting to:", link.longUrl)
     res.redirect(link.longUrl)
   } catch (err) {
     console.error("重定向错误:", err)
+    // 记录失败的审计日志
+    if (err.link) {
+      await createAuditLog({
+        userId: err.link.createdBy,
+        action: "CLICK_LINK",
+        resourceType: "LINK",
+        resourceId: err.link._id,
+        description: `访问短链接失败: ${err.link.shortUrl}`,
+        metadata: { error: err.message },
+        req,
+        status: "FAILURE",
+        errorMessage: err.message,
+      })
+    }
     res.status(404).send({ success: false, message: "短链接未找到" })
   }
 }
@@ -180,9 +203,47 @@ const deleteLink = async (req, res) => {
   }
 }
 
+// 更新短链接
+const updateLink = async (req, res) => {
+  const { id } = req.params
+  const { longUrl } = req.body
+
+  try {
+    const link = await Link.findOneAndUpdate(
+      {
+        _id: id,
+        createdBy: req.user.id,
+      },
+      { longUrl },
+      { new: true }
+    )
+
+    if (!link) {
+      return res.status(404).json({ success: false, message: "链接未找到" })
+    }
+
+    // 添加审计日志
+    await createAuditLog({
+      userId: req.user.id,
+      action: "UPDATE_LINK",
+      resourceType: "LINK",
+      resourceId: link._id,
+      description: `更新短链接: ${link.shortUrl}`,
+      metadata: { longUrl: link.longUrl },
+      req,
+    })
+
+    res.json({ success: true, data: link })
+  } catch (err) {
+    console.error("更新短链接错误:", err)
+    res.status(500).json({ success: false, message: "服务器错误" })
+  }
+}
+
 module.exports = {
   createShortLink,
   getLinks,
   redirectToLongLink,
   deleteLink,
+  updateLink,
 }

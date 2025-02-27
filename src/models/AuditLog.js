@@ -12,11 +12,17 @@ const auditLogSchema = new mongoose.Schema({
     enum: [
       "CREATE_LINK",
       "DELETE_LINK",
+      "UPDATE_LINK",
+      "CLICK_LINK",
       "UPDATE_PASSWORD",
       "CREATE_DOMAIN",
       "DELETE_DOMAIN",
+      "VERIFY_DOMAIN",
       "REGISTER",
       "LOGIN",
+      "LOGOUT",
+      "USER_UPDATE",
+      "DOMAIN_VERIFY",
     ],
   },
   resourceType: {
@@ -47,6 +53,17 @@ const auditLogSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now,
+  },
+  status: {
+    type: String,
+    enum: ["SUCCESS", "FAILURE"],
+    default: "SUCCESS",
+  },
+  errorMessage: String,
+  deviceInfo: {
+    browser: String,
+    os: String,
+    device: String,
   },
 })
 

@@ -7,6 +7,7 @@ const {
   // updateLink,
   deleteLink,
   redirectToLongLink,
+  updateLink,
 } = require("../controllers/link")
 const {
   streamChat,
@@ -38,7 +39,7 @@ router.use(auth)
 
 router.route("/links").post(createShortLink).get(getLinks)
 
-router.route("/links/:id").delete(deleteLink)
+router.route("/links/:id").put(updateLink).delete(deleteLink)
 
 router.get("/chats", getChats)
 router.get("/chats/:chatId", getChatHistory)
