@@ -2,21 +2,39 @@ const User = require("../models/User")
 
 // 获取所有用户
 exports.getAllUsers = async (req, res) => {
-  const { page = 1, pageSize = 10 } = req.query // 获取分页参数
   try {
-    const users = await User.find()
-      .select("-password") // 不返回密码
-      .skip((page - 1) * pageSize) // 跳过前面的数据
-      .limit(Number(pageSize)) // 限制返回的数据条数
-    const total = await User.countDocuments() // 获取用户总数
+    // 从查询参数中获取分页信息，设置默认值
+    const page = parseInt(req.query.page) || 1
+    const pageSize = parseInt(req.query.pageSize) || 10
+
+    // 计算跳过的文档数量
+    const skip = (page - 1) * pageSize
+
+    // 使用Promise.all并行执行查询
+    const [users, total] = await Promise.all([
+      User.find()
+        .select("-password")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(pageSize),
+      User.countDocuments(),
+    ])
+
+    // 返回标准化的响应格式
     res.json({
       success: true,
       data: users,
-      total: total, // 返回总数
+      total,
+      page,
+      pageSize,
     })
   } catch (error) {
     console.error("获取用户列表失败:", error)
-    res.status(500).json({ success: false, message: "服务器错误" })
+    res.status(500).json({
+      success: false,
+      message: "服务器错误",
+      error: error.message,
+    })
   }
 }
 

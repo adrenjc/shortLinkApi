@@ -19,8 +19,8 @@ const userSchema = new mongoose.Schema(
     email: {
       type: String,
       required: false,
-      unique: true,
-      sparse: true,
+      index: false,
+      unique: false,
       trim: true,
       lowercase: true,
       match: [
@@ -28,6 +28,12 @@ const userSchema = new mongoose.Schema(
         "请输入有效的邮箱地址",
       ],
       default: null,
+      validate: {
+        validator: function (v) {
+          return v === null || v.length > 0
+        },
+        message: "邮箱不能为空字符串",
+      },
     },
     nickname: {
       type: String,
@@ -122,6 +128,19 @@ userSchema.virtual("fullProfile").get(function () {
     createdAt: this.createdAt,
   }
 })
+
+// 在schema定义后，模型创建前添加条件索引
+userSchema.index(
+  { email: 1 },
+  {
+    unique: true,
+    sparse: true,
+    background: true,
+    partialFilterExpression: {
+      email: { $type: "string" },
+    },
+  }
+)
 
 const User = mongoose.model("User", userSchema)
 
