@@ -15,6 +15,13 @@ const {
   getChatHistory,
   deleteChat,
 } = require("../controllers/chat")
+const { getAllUsers, updateUser } = require("../controllers/user")
+const {
+  addDomain,
+  verifyDomain,
+  getDomains,
+  deleteDomain,
+} = require("../controllers/domain")
 
 require("dotenv").config()
 const router = express.Router()
@@ -36,5 +43,15 @@ router.get("/chats", getChats)
 router.get("/chats/:chatId", getChatHistory)
 router.delete("/chats/:chatId", deleteChat)
 router.post("/chat", streamChat)
+
+// 仅限管理员访问的路由
+router.get("/users", getAllUsers)
+router.put("/users/:id", updateUser)
+
+// 域名管理路由
+router.post("/domains", addDomain)
+router.post("/domains/:domain/verify", verifyDomain)
+router.get("/domains", getDomains)
+router.delete("/domains/:domain", deleteDomain)
 
 module.exports = router
