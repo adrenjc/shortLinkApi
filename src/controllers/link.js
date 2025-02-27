@@ -1,46 +1,6 @@
 const Link = require("../models/Link")
 const config = require("../config/config")
 
-// const createShortLink = async (req, res) => {
-//   const { longUrl } = req.body
-
-//   console.log("Received longUrl:", longUrl)
-
-//   if (!longUrl) {
-//     return res.status(400).send("长链接不能为空")
-//   }
-
-//   try {
-//     const { Octokit } = await import("@octokit/rest")
-//     const octokit = new Octokit({
-//       auth: "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",
-//     })
-//     const response = await octokit.issues.create({
-//       owner: "adrenjc",
-//       repo: "su",
-//       title: longUrl,
-//       body: "",
-//     })
-
-//     const issueUrl = response.data.html_url
-//     const shortUrl = issueUrl.replace(
-//       "github.com/adrenjc/su/issues",
-//       "adrenjc.github.io/su"
-//     )
-
-//     const newLink = new Link({
-//       longUrl,
-//       shortKey: shortUrl,
-//       createdBy: req.user.id,
-//     })
-
-//     await newLink.save()
-//     res.json(newLink)
-//   } catch (error) {
-//     console.error("创建短链接错误:", error)
-//     res.status(500).send("服务器错误")
-//   }
-// }
 const generateShortKey = (longUrl) => {
   // 使用时间戳和长链接生成短链接
   const timestamp = Date.now()
@@ -48,7 +8,7 @@ const generateShortKey = (longUrl) => {
 }
 
 const createShortLink = async (req, res) => {
-  const { longUrl, customDomain } = req.body // 直接从 req.body 解构
+  const { longUrl, customDomain } = req.body
 
   console.log("Received request body:", req.body) // 添加日志
 
@@ -59,26 +19,16 @@ const createShortLink = async (req, res) => {
   try {
     const shortKey = generateShortKey(longUrl)
 
-    // 验证自定义域名格式（如果有）
-    if (customDomain) {
-      const domainRegex =
-        /^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/
-      if (!domainRegex.test(customDomain)) {
-        return res.status(400).json({
-          success: false,
-          message: "无效的域名格式",
-        })
-      }
-    }
-
-    // 使用自定义域名或默认域名
-    const domain = customDomain || config.domain
-    const baseUrl = customDomain ? `https://${customDomain}` : config.baseUrl
+    // 使用自定义域名或当前请求的域名
+    const currentDomain = req.get("host")
+    const baseUrl = customDomain
+      ? `https://${customDomain}`
+      : `https://${currentDomain}`
 
     const newLink = new Link({
       longUrl,
       shortKey,
-      customDomain: customDomain || null,
+      customDomain: customDomain || currentDomain, // 存储实际使用的域名
       shortUrl: `${baseUrl}/r/${shortKey}`,
       createdBy: req.user.id,
     })
@@ -100,26 +50,17 @@ const createShortLink = async (req, res) => {
 
 const redirectToLongLink = async (req, res) => {
   const { shortKey } = req.params
-  const host = req.get("host") // 获取请求的域名
-
   try {
-    // 根据短链接和域名查找
-    const link = await Link.findOne({
-      shortKey,
-      $or: [
-        { customDomain: host },
-        { customDomain: null }, // 如果是默认域名
-      ],
-    })
-
+    const link = await Link.findOne({ shortKey })
     if (!link) {
       return res.status(404).send({ success: false, message: "短链接未找到" })
     }
 
+    // 使用当前访问的域名而不是存储的域名
     res.redirect(link.longUrl)
   } catch (err) {
     console.error("重定向错误:", err)
-    res.redirect("/404")
+    res.status(404).send({ success: false, message: "短链接未找到" })
   }
 }
 

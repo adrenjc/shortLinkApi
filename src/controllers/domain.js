@@ -93,13 +93,11 @@ const verifyDomain = async (req, res) => {
 const getDomains = async (req, res) => {
   try {
     const domains = await Domain.find({ userId: req.user.id })
-    console.log("Found domains:", domains) // 添加日志
     res.json({
       success: true,
       data: domains,
     })
   } catch (error) {
-    console.error("获取域名列表失败:", error)
     res.status(500).json({
       success: false,
       message: "获取域名列表失败",
