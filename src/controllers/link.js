@@ -69,39 +69,20 @@ const createShortLink = async (req, res) => {
 
 const redirectToLongLink = async (req, res) => {
   const { shortKey } = req.params
-  const host = req.get("host").replace(/^www\./, "") // 去除 www 前缀
-  const env = process.env.NODE_ENV || "development"
-  const isDev = config.getConfig(env).isDev
 
   console.log("Redirect request:", {
     shortKey,
-    host,
-    isDev,
+    headers: req.headers,
   })
 
   try {
-    let link
+    // 只根据 shortKey 查找，不再关心域名
+    const link = await Link.findOne({ shortKey })
 
-    if (isDev) {
-      // 开发环境下不考虑自定义域名，直接查找短链接
-      link = await Link.findOne({ shortKey })
-    } else {
-      // 生产环境下的域名匹配逻辑
-      // 先尝试查找完全匹配的自定义域名
-      link = await Link.findOne({
-        shortKey,
-        $or: [{ customDomain: host }, { customDomain: null }],
-      })
-
-      console.log("Found link:", link)
-    }
+    console.log("Found link:", link)
 
     if (!link) {
-      console.log("Link not found for:", {
-        shortKey,
-        host,
-        isDev,
-      })
+      console.log("Link not found for shortKey:", shortKey)
       return res.status(404).send({ success: false, message: "短链接未找到" })
     }
 
