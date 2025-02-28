@@ -22,6 +22,7 @@ const {
   verifyDomain,
   getDomains,
   deleteDomain,
+  recheckDomain,
 } = require("../controllers/domain")
 const { getAuditLogs, getAuditLogStats } = require("../controllers/auditLog")
 
@@ -55,6 +56,7 @@ router.post("/domains", addDomain)
 router.post("/domains/:domain/verify", verifyDomain)
 router.get("/domains", getDomains)
 router.delete("/domains/:domain", deleteDomain)
+router.post("/domains/:domain/recheck", recheckDomain)
 
 // 审计日志路由 - 仅管理员可访问
 router.get("/audit-logs", getAuditLogs)

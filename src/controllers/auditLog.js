@@ -10,6 +10,9 @@ const createAuditLog = async ({
   description,
   metadata = {},
   req,
+  status = "SUCCESS",
+  errorMessage = null,
+  session = null,
 }) => {
   try {
     const auditLog = new AuditLog({
@@ -21,8 +24,20 @@ const createAuditLog = async ({
       metadata,
       ipAddress: req.ip,
       userAgent: req.get("user-agent"),
+      status,
+      errorMessage,
+      deviceInfo: {
+        browser: req.get("user-agent"),
+        os: req.get("user-agent"),
+        device: req.get("user-agent"),
+      },
     })
-    await auditLog.save()
+
+    if (session) {
+      await auditLog.save({ session })
+    } else {
+      await auditLog.save()
+    }
   } catch (error) {
     console.error("审计日志创建失败:", error)
   }
