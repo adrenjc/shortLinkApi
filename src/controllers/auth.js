@@ -60,13 +60,22 @@ exports.register = async (req, res) => {
 
 // 用户登录
 exports.login = async (req, res) => {
-  try {
-    const { username, password } = req.body
+  const { username, password } = req.body
 
-    // 验证用户
+  try {
+    // 查找用户并填充角色信息
     const user = await User.findOne({ username })
+      .populate({
+        path: "roles",
+        populate: {
+          path: "permissions", // 同时填充角色中的权限信息
+          model: "Permission",
+        },
+      })
+      .populate("permissions") // 直接分配给用户的权限
+
     if (!user) {
-      return res.status(400).json({
+      return res.status(401).json({
         success: false,
         message: "用户名或密码错误",
       })
@@ -75,7 +84,7 @@ exports.login = async (req, res) => {
     // 验证密码
     const isMatch = await user.comparePassword(password)
     if (!isMatch) {
-      return res.status(400).json({
+      return res.status(401).json({
         success: false,
         message: "用户名或密码错误",
       })
@@ -97,27 +106,44 @@ exports.login = async (req, res) => {
       req,
     })
 
-    // 生成JWT令牌
-    const payload = {
-      user: {
-        id: user.id,
-        role: user.role,
+    // 生成 token
+    const token = jwt.sign(
+      {
+        user: {
+          id: user._id,
+        },
       },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRE || "24h" }
+    )
+
+    // 返回用户信息时排除敏感字段
+    const userResponse = {
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      nickname: user.nickname,
+      avatar: user.avatar,
+      description: user.description,
+      roles: user.roles, // 包含完整的角色信息
+      permissions: user.permissions, // 直接分配给用户的权限
+      status: user.status,
+      lastLoginTime: user.lastLoginTime,
+      createdAt: user.createdAt,
     }
 
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: "24h",
-    })
-
-    // 返回用户信息和令牌
     res.json({
       success: true,
+      message: "登录成功",
       token,
-      user: user.fullProfile,
+      user: userResponse,
     })
-  } catch (err) {
-    console.error(err.message)
-    res.status(500).send({ success: false, message: "服务器错误" })
+  } catch (error) {
+    console.error("登录失败:", error)
+    res.status(500).json({
+      success: false,
+      message: "服务器错误",
+    })
   }
 }
 
@@ -135,21 +161,50 @@ exports.getUser = async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
     const userId = decoded.user.id
 
-    // 查找用户
-    const user = await User.findById(userId).select("-password")
+    // 查找用户并填充角色和权限信息
+    const user = await User.findById(userId)
+      .select("-password")
+      .populate({
+        path: "roles",
+        populate: {
+          path: "permissions",
+          model: "Permission",
+        },
+      })
+      .populate("permissions")
+
     if (!user) {
       return res.status(404).json({ success: false, message: "用户不存在" })
     }
 
+    // 构造完整的用户响应
+    const userResponse = {
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      nickname: user.nickname,
+      avatar: user.avatar,
+      description: user.description,
+      roles: user.roles, // 包含完整的角色信息
+      permissions: user.permissions, // 直接分配给用户的权限
+      status: user.status,
+      lastLoginTime: user.lastLoginTime,
+      lastLoginIp: user.lastLoginIp,
+      loginCount: user.loginCount,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      isSystem: user.isSystem,
+    }
+
     res.json({
       success: true,
-      data: {
-        name: user.username,
-        userId: user.id,
-      },
+      data: userResponse,
     })
   } catch (err) {
-    console.error(err.message)
-    res.status(500).send({ success: false, message: "服务器错误" })
+    console.error("获取用户信息失败:", err)
+    res.status(500).json({
+      success: false,
+      message: err.message || "服务器错误",
+    })
   }
 }

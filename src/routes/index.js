@@ -25,6 +25,14 @@ const {
   recheckDomain,
 } = require("../controllers/domain")
 const { getAuditLogs, getAuditLogStats } = require("../controllers/auditLog")
+const {
+  createRole,
+  getRoles,
+  updateRole,
+  deleteRole,
+} = require("../controllers/role")
+const { getPermissions } = require("../controllers/permission")
+const { checkPermission } = require("../middleware/checkPermission")
 
 require("dotenv").config()
 const router = express.Router()
@@ -48,8 +56,8 @@ router.delete("/chats/:chatId", deleteChat)
 router.post("/chat", streamChat)
 
 // 仅限管理员访问的路由
-router.get("/users", getAllUsers)
-router.put("/users/:id", updateUser)
+router.get("/users", checkPermission("user:view"), getAllUsers)
+router.put("/users/:id", checkPermission("user:update"), updateUser)
 
 // 域名管理路由
 router.post("/domains", addDomain)
@@ -61,5 +69,14 @@ router.post("/domains/:domain/recheck", recheckDomain)
 // 审计日志路由 - 仅管理员可访问
 router.get("/audit-logs", getAuditLogs)
 router.get("/audit-logs/stats", getAuditLogStats)
+
+// 角色管理路由
+router.post("/roles", checkPermission("role:create"), createRole)
+router.get("/roles", checkPermission("role:view"), getRoles)
+router.put("/roles/:id", checkPermission("role:update"), updateRole)
+router.delete("/roles/:id", checkPermission("role:delete"), deleteRole)
+
+// 权限相关路由
+router.get("/permissions", checkPermission("role:view"), getPermissions)
 
 module.exports = router

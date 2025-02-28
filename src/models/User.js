@@ -48,11 +48,20 @@ const userSchema = new mongoose.Schema(
       enum: [0, 1],
       default: 1,
     },
-    role: {
-      type: String,
-      enum: ["user", "admin"],
-      default: "user",
-    },
+    roles: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Role",
+        required: true,
+      },
+    ],
+    permissions: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Permission",
+        required: false,
+      },
+    ],
     lastLoginTime: {
       type: Date,
       default: null,
@@ -84,6 +93,10 @@ const userSchema = new mongoose.Schema(
       min: 0,
     },
     isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    isSystem: {
       type: Boolean,
       default: false,
     },
@@ -122,7 +135,7 @@ userSchema.virtual("fullProfile").get(function () {
     nickname: this.nickname,
     avatar: this.avatar,
     description: this.description,
-    role: this.role,
+    role: this.roles.map((role) => role.name),
     status: this.status,
     lastLoginTime: this.lastLoginTime,
     createdAt: this.createdAt,

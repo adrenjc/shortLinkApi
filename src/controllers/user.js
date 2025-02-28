@@ -1,32 +1,56 @@
 const User = require("../models/User")
+const { createAuditLog } = require("./auditLog")
 
 // 获取所有用户
 exports.getAllUsers = async (req, res) => {
   try {
-    // 从查询参数中获取分页信息，设置默认值
-    const page = parseInt(req.query.page) || 1
-    const pageSize = parseInt(req.query.pageSize) || 10
-
-    // 计算跳过的文档数量
+    const {
+      page = 1,
+      pageSize = 10,
+      username,
+      email,
+      status,
+      nickname,
+    } = req.query
     const skip = (page - 1) * pageSize
 
-    // 使用Promise.all并行执行查询
+    // 构建查询条件
+    const query = {}
+
+    // 支持模糊搜索
+    if (username) {
+      query.username = { $regex: username, $options: "i" }
+    }
+    if (email) {
+      query.email = { $regex: email, $options: "i" }
+    }
+    if (nickname) {
+      query.nickname = { $regex: nickname, $options: "i" }
+    }
+    if (status !== undefined && status !== "") {
+      query.status = parseInt(status)
+    }
+
+    // 使用 Promise.all 并行执行查询
     const [users, total] = await Promise.all([
-      User.find()
+      User.find(query)
         .select("-password")
+        .populate({
+          path: "roles",
+          select: "name", // 只返回角色名称
+        })
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(pageSize),
-      User.countDocuments(),
+        .limit(parseInt(pageSize)),
+      User.countDocuments(query),
     ])
 
-    // 返回标准化的响应格式
     res.json({
       success: true,
       data: users,
       total,
-      page,
-      pageSize,
+      page: parseInt(page),
+      pageSize: parseInt(pageSize),
     })
   } catch (error) {
     console.error("获取用户列表失败:", error)
@@ -41,7 +65,7 @@ exports.getAllUsers = async (req, res) => {
 // 更新用户信息
 exports.updateUser = async (req, res) => {
   const { id } = req.params
-  const { username, password } = req.body
+  const { username, password, roles } = req.body
 
   try {
     const user = await User.findById(id)
@@ -59,10 +83,40 @@ exports.updateUser = async (req, res) => {
       user.password = password // 密码会在保存时自动加密
     }
 
+    // 更新角色
+    if (roles) {
+      user.roles = roles
+    }
+
+    // 记录更新时间
+    user.updatedAt = Date.now()
+
     await user.save()
-    res.json({ success: true, data: user })
+
+    // 创建审计日志
+    await createAuditLog({
+      userId: req.user.id,
+      action: "UPDATE_USER",
+      resourceType: "USER",
+      resourceId: user._id,
+      description: `更新用户: ${user.username}`,
+      req,
+    })
+
+    // 返回时排除密码字段
+    const userResponse = user.toObject()
+    delete userResponse.password
+
+    res.json({
+      success: true,
+      data: userResponse,
+      message: "用户信息更新成功",
+    })
   } catch (error) {
     console.error("更新用户信息失败:", error)
-    res.status(500).json({ success: false, message: "服务器错误" })
+    res.status(500).json({
+      success: false,
+      message: error.message || "更新用户信息失败",
+    })
   }
 }
