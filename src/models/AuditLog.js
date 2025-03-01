@@ -1,4 +1,5 @@
 const mongoose = require("mongoose")
+const { ACTION_TYPES } = require("../constants/auditLogTypes")
 
 const auditLogSchema = new mongoose.Schema({
   userId: {
@@ -9,29 +10,7 @@ const auditLogSchema = new mongoose.Schema({
   action: {
     type: String,
     required: true,
-    enum: [
-      "CREATE_LINK",
-      "DELETE_LINK",
-      "UPDATE_LINK",
-      "CLICK_LINK",
-      "UPDATE_PASSWORD",
-      "CREATE_DOMAIN",
-      "DELETE_DOMAIN",
-      "VERIFY_DOMAIN",
-      "REGISTER",
-      "LOGIN",
-      "LOGOUT",
-      "USER_UPDATE",
-      "DOMAIN_VERIFY",
-      "CREATE_ROLE",
-      "UPDATE_ROLE",
-      "DELETE_ROLE",
-      "ASSIGN_ROLE",
-      "REVOKE_ROLE",
-      "CREATE_PERMISSION",
-      "UPDATE_PERMISSION",
-      "DELETE_PERMISSION",
-    ],
+    enum: Object.values(ACTION_TYPES),
   },
   resourceType: {
     type: String,

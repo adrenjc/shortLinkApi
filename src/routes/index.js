@@ -33,6 +33,7 @@ const {
 } = require("../controllers/role")
 const { getPermissions } = require("../controllers/permission")
 const { checkPermission } = require("../middleware/checkPermission")
+const { PERMISSION_CODES } = require("../constants/permissions")
 
 require("dotenv").config()
 const router = express.Router()
@@ -56,27 +57,63 @@ router.delete("/chats/:chatId", deleteChat)
 router.post("/chat", streamChat)
 
 // 仅限管理员访问的路由
-router.get("/users", checkPermission("user:view"), getAllUsers)
-router.put("/users/:id", checkPermission("user:update"), updateUser)
+router.get("/users", checkPermission(PERMISSION_CODES.USER_VIEW), getAllUsers)
+router.put(
+  "/users/:id",
+  checkPermission(PERMISSION_CODES.USER_UPDATE),
+  updateUser
+)
 
 // 域名管理路由
-router.post("/domains", addDomain)
-router.post("/domains/:domain/verify", verifyDomain)
+router.post(
+  "/domains",
+  checkPermission(PERMISSION_CODES.DOMAIN_CREATE),
+  addDomain
+)
+router.post(
+  "/domains/:domain/verify",
+  checkPermission(PERMISSION_CODES.DOMAIN_VERIFY),
+  verifyDomain
+)
 router.get("/domains", getDomains)
-router.delete("/domains/:domain", deleteDomain)
+router.delete(
+  "/domains/:domain",
+  checkPermission(PERMISSION_CODES.DOMAIN_DELETE),
+  deleteDomain
+)
 router.post("/domains/:domain/recheck", recheckDomain)
 
 // 审计日志路由 - 仅管理员可访问
-router.get("/audit-logs", getAuditLogs)
-router.get("/audit-logs/stats", getAuditLogStats)
+router.get(
+  "/audit-logs",
+  checkPermission(PERMISSION_CODES.AUDIT_VIEW),
+  getAuditLogs
+)
+router.get(
+  "/audit-logs/stats",
+  checkPermission(PERMISSION_CODES.AUDIT_VIEW),
+  getAuditLogStats
+)
 
 // 角色管理路由
-router.post("/roles", checkPermission("role:create"), createRole)
-router.get("/roles", checkPermission("role:view"), getRoles)
-router.put("/roles/:id", checkPermission("role:update"), updateRole)
-router.delete("/roles/:id", checkPermission("role:delete"), deleteRole)
+router.post("/roles", checkPermission(PERMISSION_CODES.ROLE_CREATE), createRole)
+router.get("/roles", checkPermission(PERMISSION_CODES.ROLE_VIEW), getRoles)
+router.put(
+  "/roles/:id",
+  checkPermission(PERMISSION_CODES.ROLE_UPDATE),
+  updateRole
+)
+router.delete(
+  "/roles/:id",
+  checkPermission(PERMISSION_CODES.ROLE_DELETE),
+  deleteRole
+)
 
 // 权限相关路由
-router.get("/permissions", checkPermission("role:view"), getPermissions)
+router.get(
+  "/permissions",
+  checkPermission(PERMISSION_CODES.ROLE_VIEW),
+  getPermissions
+)
 
 module.exports = router

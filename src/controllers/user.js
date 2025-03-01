@@ -1,5 +1,6 @@
 const User = require("../models/User")
 const { createAuditLog } = require("./auditLog")
+const { ACTION_TYPES, RESOURCE_TYPES } = require("../constants/auditLogTypes")
 
 // 获取所有用户
 exports.getAllUsers = async (req, res) => {
@@ -96,8 +97,8 @@ exports.updateUser = async (req, res) => {
     // 创建审计日志
     await createAuditLog({
       userId: req.user.id,
-      action: "UPDATE_USER",
-      resourceType: "USER",
+      action: ACTION_TYPES.USER_UPDATE,
+      resourceType: RESOURCE_TYPES.USER,
       resourceId: user._id,
       description: `更新用户: ${user.username}`,
       req,

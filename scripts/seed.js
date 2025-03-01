@@ -8,11 +8,11 @@ const mongoose = require("mongoose")
 const Permission = require("../src/models/Permission")
 const Role = require("../src/models/Role")
 const User = require("../src/models/User")
-const permissions = require("../src/config/permissions") // 导入权限配置
+const { PERMISSIONS } = require("../src/constants/permissions") // 导入权限配置
 
 const initPermissions = async () => {
   console.log("开始初始化权限...")
-  for (const permission of permissions) {
+  for (const permission of PERMISSIONS) {
     await Permission.findOneAndUpdate({ code: permission.code }, permission, {
       upsert: true,
       new: true,

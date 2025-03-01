@@ -1,6 +1,7 @@
 const Link = require("../models/Link")
 const config = require("../config/config")
 const { createAuditLog } = require("./auditLog")
+const { ACTION_TYPES, RESOURCE_TYPES } = require("../constants/auditLogTypes")
 
 const generateShortKey = (longUrl) => {
   // 使用时间戳和长链接生成短链接
@@ -40,8 +41,8 @@ const createShortLink = async (req, res) => {
       // 添加审计日志
       await createAuditLog({
         userId: req.user.id,
-        action: "CREATE_LINK",
-        resourceType: "LINK",
+        action: ACTION_TYPES.CREATE_LINK,
+        resourceType: RESOURCE_TYPES.LINK,
         resourceId: newLink._id,
         description: `创建短链接: ${newLink.shortUrl}`,
         metadata: { longUrl: newLink.longUrl },
@@ -70,8 +71,8 @@ const createShortLink = async (req, res) => {
     // 添加审计日志
     await createAuditLog({
       userId: req.user.id,
-      action: "CREATE_LINK",
-      resourceType: "LINK",
+      action: ACTION_TYPES.CREATE_LINK,
+      resourceType: RESOURCE_TYPES.LINK,
       resourceId: newLink._id,
       description: `创建短链接: ${newLink.shortUrl}`,
       metadata: { longUrl: newLink.longUrl },
@@ -105,9 +106,9 @@ const redirectToLongLink = async (req, res) => {
 
     // 添加点击审计日志
     await createAuditLog({
-      userId: link.createdBy, // 使用链接创建者的ID
-      action: "CLICK_LINK",
-      resourceType: "LINK",
+      userId: link.createdBy,
+      action: ACTION_TYPES.CLICK_LINK,
+      resourceType: RESOURCE_TYPES.LINK,
       resourceId: link._id,
       description: `访问短链接: ${link.shortUrl}`,
       metadata: {
@@ -128,8 +129,8 @@ const redirectToLongLink = async (req, res) => {
     if (err.link) {
       await createAuditLog({
         userId: err.link.createdBy,
-        action: "CLICK_LINK",
-        resourceType: "LINK",
+        action: ACTION_TYPES.CLICK_LINK,
+        resourceType: RESOURCE_TYPES.LINK,
         resourceId: err.link._id,
         description: `访问短链接失败: ${err.link.shortUrl}`,
         metadata: { error: err.message },
@@ -189,8 +190,8 @@ const deleteLink = async (req, res) => {
     // 添加审计日志
     await createAuditLog({
       userId: req.user.id,
-      action: "DELETE_LINK",
-      resourceType: "LINK",
+      action: ACTION_TYPES.DELETE_LINK,
+      resourceType: RESOURCE_TYPES.LINK,
       resourceId: link._id,
       description: `删除短链接: ${link.shortUrl}`,
       metadata: { longUrl: link.longUrl },
@@ -225,8 +226,8 @@ const updateLink = async (req, res) => {
     // 添加审计日志
     await createAuditLog({
       userId: req.user.id,
-      action: "UPDATE_LINK",
-      resourceType: "LINK",
+      action: ACTION_TYPES.UPDATE_LINK,
+      resourceType: RESOURCE_TYPES.LINK,
       resourceId: link._id,
       description: `更新短链接: ${link.shortUrl}`,
       metadata: { longUrl: link.longUrl },

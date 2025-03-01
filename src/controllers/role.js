@@ -1,5 +1,6 @@
 const Role = require("../models/Role")
 const { createAuditLog } = require("./auditLog")
+const { ACTION_TYPES, RESOURCE_TYPES } = require("../constants/auditLogTypes")
 
 // 创建角色
 exports.createRole = async (req, res) => {
@@ -16,10 +17,10 @@ exports.createRole = async (req, res) => {
 
     await createAuditLog({
       userId: req.user.id,
-      action: "CREATE_ROLE",
-      resourceType: "ROLE",
+      action: ACTION_TYPES.ROLE_CREATE,
+      resourceType: RESOURCE_TYPES.ROLE,
       resourceId: role._id,
-      description: `创建角色: ${name}`,
+      description: `创建角色: ${role.name}`,
       req,
     })
 
@@ -76,8 +77,8 @@ exports.updateRole = async (req, res) => {
 
     await createAuditLog({
       userId: req.user.id,
-      action: "UPDATE_ROLE",
-      resourceType: "ROLE",
+      action: ACTION_TYPES.ROLE_UPDATE,
+      resourceType: RESOURCE_TYPES.ROLE,
       resourceId: role._id,
       description: `更新角色: ${name}`,
       req,
@@ -119,8 +120,8 @@ exports.deleteRole = async (req, res) => {
 
     await createAuditLog({
       userId: req.user.id,
-      action: "DELETE_ROLE",
-      resourceType: "ROLE",
+      action: ACTION_TYPES.ROLE_DELETE,
+      resourceType: RESOURCE_TYPES.ROLE,
       resourceId: role._id,
       description: `删除角色: ${role.name}`,
       req,

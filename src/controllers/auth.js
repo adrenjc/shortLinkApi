@@ -2,11 +2,13 @@ const User = require("../models/User")
 const jwt = require("jsonwebtoken")
 const bcrypt = require("bcryptjs")
 const { createAuditLog } = require("./auditLog")
+const Role = require("../models/Role")
+const { ACTION_TYPES, RESOURCE_TYPES } = require("../constants/auditLogTypes")
 
 // 用户注册
 exports.register = async (req, res) => {
   try {
-    const { username, password, email, nickname } = req.body
+    const { username, password } = req.body
 
     // 检查用户名是否存在
     let user = await User.findOne({ username })
@@ -14,43 +16,53 @@ exports.register = async (req, res) => {
       return res.status(400).json({ success: false, message: "用户已经存在" })
     }
 
-    // 创建新用户，只传入必需字段和已提供的可选字段
-    const userData = {
-      username,
-      password,
-      ...(email && { email }), // 只有当 email 存在时才添加
-      ...(nickname && { nickname }), // 只有当 nickname 存在时才添加
+    // 获取普通用户角色
+    const normalRole = await Role.findOne({ name: "普通用户" })
+    if (!normalRole) {
+      return res
+        .status(500)
+        .json({ success: false, message: "系统错误：未找到默认角色" })
     }
 
-    user = new User(userData)
+    // 创建新用户
+    user = new User({
+      username,
+      password,
+      roles: [normalRole._id], // 分配普通用户角色
+    })
     await user.save()
 
     // 添加审计日志
     await createAuditLog({
       userId: user.id,
-      action: "REGISTER",
-      resourceType: "USER",
-      resourceId: user.id,
+      action: ACTION_TYPES.REGISTER,
+      resourceType: RESOURCE_TYPES.USER,
+      resourceId: user._id,
       description: `新用户注册: ${user.username}`,
       req,
     })
 
-    // 生成JWT令牌
-    const payload = {
-      user: {
-        id: user.id,
-        role: user.role,
+    // 生成 JWT 令牌
+    const token = jwt.sign(
+      {
+        user: {
+          id: user._id,
+        },
       },
-    }
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRE || "24h" }
+    )
 
-    const token = jwt.sign(payload, process.env.JWT_SECRET, {
-      expiresIn: "24h",
-    })
-
+    // 返回用户信息和令牌
     res.json({
       success: true,
-      token,
       message: "注册成功",
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        roles: [normalRole],
+      },
     })
   } catch (err) {
     console.error(err.message)
@@ -99,9 +111,9 @@ exports.login = async (req, res) => {
     // 添加审计日志
     await createAuditLog({
       userId: user.id,
-      action: "LOGIN",
-      resourceType: "USER",
-      resourceId: user.id,
+      action: ACTION_TYPES.LOGIN,
+      resourceType: RESOURCE_TYPES.USER,
+      resourceId: user._id,
       description: `用户登录: ${user.username}`,
       req,
     })
