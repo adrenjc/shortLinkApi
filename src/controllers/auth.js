@@ -161,15 +161,12 @@ exports.login = async (req, res) => {
 
 exports.getUser = async (req, res) => {
   try {
-    // 从请求头中获取令牌
     const token = req.header("x-auth-token")
 
-    // 检查是否没有令牌
     if (!token) {
       return res.status(401).json({ success: false, message: "token失效" })
     }
 
-    // 验证令牌
     const decoded = jwt.verify(token, process.env.JWT_SECRET)
     const userId = decoded.user.id
 
@@ -189,20 +186,17 @@ exports.getUser = async (req, res) => {
       return res.status(404).json({ success: false, message: "用户不存在" })
     }
 
-    // 构造完整的用户响应
     const userResponse = {
       id: user._id,
       username: user.username,
-      email: user.email,
       nickname: user.nickname,
       avatar: user.avatar,
-      description: user.description,
-      roles: user.roles, // 包含完整的角色信息
-      permissions: user.permissions, // 直接分配给用户的权限
+      roles: user.roles,
+      permissions: user.permissions,
       status: user.status,
       lastLoginTime: user.lastLoginTime,
       lastLoginIp: user.lastLoginIp,
-      loginCount: user.loginCount,
+      description: user.description,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       isSystem: user.isSystem,

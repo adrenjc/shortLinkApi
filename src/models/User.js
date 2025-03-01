@@ -16,14 +16,7 @@ const userSchema = new mongoose.Schema(
       required: [true, "密码不能为空"],
       minlength: [6, "密码至少6个字符"],
     },
-    nickname: {
-      type: String,
-      trim: true,
-      maxlength: [30, "昵称最多30个字符"],
-      default: function () {
-        return this.username
-      },
-    },
+
     status: {
       type: Number,
       enum: [0, 1],
@@ -34,6 +27,13 @@ const userSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.ObjectId,
         ref: "Role",
         required: true,
+      },
+    ],
+    permissions: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Permission",
+        required: false,
       },
     ],
     lastLoginTime: {
