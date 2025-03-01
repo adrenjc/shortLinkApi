@@ -18,20 +18,24 @@ const addDomain = async (req, res) => {
       })
     }
 
-    // 检查域名是否已存在
-    const existingDomain = await Domain.findOne({ domain })
+    // 检查域名是否已存在 - 使用不区分大小写的查询
+    const existingDomain = await Domain.findOne({
+      domain: { $regex: new RegExp(`^${domain}$`, "i") },
+    })
+
     if (existingDomain) {
       return res.status(400).json({
         success: false,
         message: "该域名已被添加",
+        data: existingDomain,
       })
     }
 
     const verificationCode = crypto.randomBytes(16).toString("hex")
 
     const newDomain = new Domain({
-      domain,
-      userId: req.user.id,
+      domain: domain.toLowerCase(),
+      userId: req.user.id, // 记录是谁添加的
       verificationCode,
     })
 
@@ -43,7 +47,7 @@ const addDomain = async (req, res) => {
       action: ACTION_TYPES.CREATE_DOMAIN,
       resourceType: RESOURCE_TYPES.DOMAIN,
       resourceId: newDomain._id,
-      description: `添加域名: ${domain}`,
+      description: `添加新域名: ${domain}`,
       metadata: { domain },
       req,
       status: "SUCCESS",
@@ -51,43 +55,15 @@ const addDomain = async (req, res) => {
 
     res.json({
       success: true,
-      data: {
-        domain,
-        verificationCode,
-        verificationInstructions: `请添加以下 TXT 记录到您的域名解析：
-          记录类型: TXT
-          主机记录: @
-          记录值: ${verificationCode}`,
-      },
+      data: newDomain,
+      message: "域名添加成功",
     })
   } catch (err) {
     console.error("添加域名错误:", err)
-
-    // 记录失败的审计日志
-    await createAuditLog({
-      userId: req.user.id,
-      action: ACTION_TYPES.CREATE_DOMAIN,
-      resourceType: RESOURCE_TYPES.DOMAIN,
-      description: `添加域名失败: ${domain}`,
-      metadata: { domain, error: err.message },
-      req,
-      status: "FAILURE",
-      errorMessage: err.message,
+    res.status(500).json({
+      success: false,
+      message: err.message || "添加域名失败",
     })
-
-    // 根据错误类型返回不同的错误信息
-    if (err.code === 11000) {
-      res.status(400).json({
-        success: false,
-        message: "该域名已被添加",
-      })
-    } else {
-      res.status(500).json({
-        success: false,
-        message: "添加域名失败",
-        error: err.message,
-      })
-    }
   }
 }
 
@@ -310,25 +286,18 @@ const deleteDomain = async (req, res) => {
     // 开始事务
     const result = await session.withTransaction(async () => {
       // 查找域名是否存在
-      const domainDoc = await Domain.findOne({
-        domain,
-        userId: req.user.id,
-      }).session(session)
+      const domainDoc = await Domain.findOne({ domain }).session(session)
 
       if (!domainDoc) {
         throw new Error("域名未找到")
       }
 
       // 在事务中删除域名
-      await Domain.deleteOne({
-        domain,
-        userId: req.user.id,
-      }).session(session)
+      await Domain.deleteOne({ domain }).session(session)
 
       // 在事务中删除相关短链接
       await Link.deleteMany({
         customDomain: domain,
-        createdBy: req.user.id,
       }).session(session)
 
       // 在事务中添加审计日志
@@ -343,10 +312,9 @@ const deleteDomain = async (req, res) => {
         status: "SUCCESS",
       })
 
-      return domainDoc // 返回删除的域名文档
+      return domainDoc
     })
 
-    // 如果事务成功完成
     res.json({
       success: true,
       message: "域名及相关短链删除成功",
@@ -354,28 +322,91 @@ const deleteDomain = async (req, res) => {
     })
   } catch (err) {
     console.error("删除域名错误:", err)
-
-    // 记录失败的审计日志
-    await createAuditLog({
-      userId: req.user.id,
-      action: ACTION_TYPES.DELETE_DOMAIN,
-      resourceType: RESOURCE_TYPES.DOMAIN,
-      description: `删除域名失败: ${domain}`,
-      metadata: { domain, error: err.message },
-      req,
-      status: "FAILURE",
-      errorMessage: err.message,
-    })
-
     res.status(500).json({
       success: false,
       message: err.message || "删除域名失败",
     })
   } finally {
-    // 确保会话被终止
     if (session) {
       await session.endSession()
     }
+  }
+}
+
+// 获取所有用户的域名列表
+const getAllUsersDomains = async (req, res) => {
+  try {
+    // 获取分页参数，使用 current 和 pageSize
+    const current = parseInt(req.query.current) || 1
+    const pageSize = parseInt(req.query.pageSize) || 20
+    const skip = (current - 1) * pageSize
+
+    // 构建查询条件
+    const query = {}
+    if (req.query.domain) {
+      query.domain = { $regex: new RegExp(req.query.domain, "i") }
+    }
+
+    // 聚合查询，关联用户信息
+    const domains = await Domain.aggregate([
+      {
+        $match: query,
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      {
+        $unwind: {
+          path: "$user",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          domain: 1,
+          verified: 1,
+          verificationCode: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          "user.username": 1,
+          "user.email": 1,
+          "user._id": 1,
+        },
+      },
+      {
+        $sort: { createdAt: -1 },
+      },
+      {
+        $skip: skip,
+      },
+      {
+        $limit: pageSize,
+      },
+    ])
+
+    // 获取总数量
+    const total = await Domain.countDocuments(query)
+
+    // 返回符合 ProTable 的数据格式
+    res.json({
+      success: true,
+      data: domains,
+      total: total,
+    })
+  } catch (err) {
+    console.error("获取所有用户域名列表失败:", err)
+    res.status(500).json({
+      success: false,
+      data: [],
+      total: 0,
+      message: "获取域名列表失败",
+    })
   }
 }
 
@@ -386,4 +417,5 @@ module.exports = {
   getDomains,
   deleteDomain,
   recheckDomain,
+  getAllUsersDomains,
 }

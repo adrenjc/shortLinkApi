@@ -23,6 +23,7 @@ const {
   getDomains,
   deleteDomain,
   recheckDomain,
+  getAllUsersDomains,
 } = require("../controllers/domain")
 const { getAuditLogs, getAuditLogStats } = require("../controllers/auditLog")
 const {
@@ -47,9 +48,15 @@ router.get("/user", getUser)
 // 受保护路由
 router.use(auth)
 
-router.route("/links").post(createShortLink).get(getLinks)
+router
+  .route("/links")
+  .post(checkPermission(PERMISSION_CODES.LINK_CREATE), createShortLink)
+  .get(checkPermission(PERMISSION_CODES.LINK_VIEW), getLinks)
 
-router.route("/links/:id").put(updateLink).delete(deleteLink)
+router
+  .route("/links/:id")
+  .put(checkPermission(PERMISSION_CODES.LINK_UPDATE), updateLink)
+  .delete(checkPermission(PERMISSION_CODES.LINK_DELETE), deleteLink)
 
 router.get("/chats", getChats)
 router.get("/chats/:chatId", getChatHistory)
@@ -82,6 +89,13 @@ router.delete(
   deleteDomain
 )
 router.post("/domains/:domain/recheck", recheckDomain)
+
+// 添加获取所有用户域名列表的路由
+router.get(
+  "/domains/all",
+  checkPermission(PERMISSION_CODES.DOMAIN_VIEW),
+  getAllUsersDomains
+)
 
 // 审计日志路由 - 仅管理员可访问
 router.get(

@@ -8,7 +8,10 @@ const mongoose = require("mongoose")
 const Permission = require("../src/models/Permission")
 const Role = require("../src/models/Role")
 const User = require("../src/models/User")
-const { PERMISSIONS } = require("../src/constants/permissions") // 导入权限配置
+const {
+  PERMISSIONS,
+  PERMISSION_CODES,
+} = require("../src/constants/permissions") // 导入权限配置
 
 const initPermissions = async () => {
   console.log("开始初始化权限...")
@@ -22,6 +25,14 @@ const initPermissions = async () => {
 }
 
 const initRoles = async () => {
+  const {
+    LINK_CREATE,
+    LINK_DELETE,
+    LINK_MANAGE,
+    LINK_UPDATE,
+    LINK_VIEW,
+    DOMAIN_VIEW,
+  } = PERMISSION_CODES
   // 获取所有权限
   const permissions = await Permission.find()
 
@@ -45,7 +56,16 @@ const initRoles = async () => {
       name: "普通用户",
       description: "普通用户",
       permissions: permissions
-        .filter((p) => ["link:manage"].includes(p.code))
+        .filter((p) =>
+          [
+            LINK_CREATE,
+            LINK_DELETE,
+            LINK_MANAGE,
+            LINK_UPDATE,
+            LINK_VIEW,
+            DOMAIN_VIEW,
+          ].includes(p.code)
+        )
         .map((p) => p._id),
       isSystem: true,
     },
