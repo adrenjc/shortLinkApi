@@ -16,25 +16,6 @@ const userSchema = new mongoose.Schema(
       required: [true, "密码不能为空"],
       minlength: [6, "密码至少6个字符"],
     },
-    email: {
-      type: String,
-      required: false,
-      index: false,
-      unique: false,
-      trim: true,
-      lowercase: true,
-      match: [
-        /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
-        "请输入有效的邮箱地址",
-      ],
-      default: null,
-      validate: {
-        validator: function (v) {
-          return v === null || v.length > 0
-        },
-        message: "邮箱不能为空字符串",
-      },
-    },
     nickname: {
       type: String,
       trim: true,
@@ -55,13 +36,6 @@ const userSchema = new mongoose.Schema(
         required: true,
       },
     ],
-    permissions: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Permission",
-        required: false,
-      },
-    ],
     lastLoginTime: {
       type: Date,
       default: null,
@@ -70,6 +44,10 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    avatar: {
+      type: String,
+      default: "",
+    },
     createdAt: {
       type: Date,
       default: Date.now,
@@ -77,10 +55,6 @@ const userSchema = new mongoose.Schema(
     updatedAt: {
       type: Date,
       default: Date.now,
-    },
-    avatar: {
-      type: String,
-      default: "",
     },
     description: {
       type: String,
@@ -131,29 +105,14 @@ userSchema.virtual("fullProfile").get(function () {
   return {
     id: this._id,
     username: this.username,
-    email: this.email,
     nickname: this.nickname,
     avatar: this.avatar,
-    description: this.description,
     role: this.roles.map((role) => role.name),
     status: this.status,
     lastLoginTime: this.lastLoginTime,
     createdAt: this.createdAt,
   }
 })
-
-// 在schema定义后，模型创建前添加条件索引
-userSchema.index(
-  { email: 1 },
-  {
-    unique: true,
-    sparse: true,
-    background: true,
-    partialFilterExpression: {
-      email: { $type: "string" },
-    },
-  }
-)
 
 const User = mongoose.model("User", userSchema)
 
