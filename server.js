@@ -21,5 +21,27 @@ connectDB()
 // 路由
 app.use("/api", router)
 
-const PORT = process.env.PORT || 5000
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
+// 增加请求队列长度
+app.set("backlog", 511)
+
+// 增加超时设置
+app.use((req, res, next) => {
+  req.setTimeout(15000)
+  res.setTimeout(15000)
+  next()
+})
+
+// 添加连接错误处理
+app.use((err, req, res, next) => {
+  console.error("服务器错误:", err)
+  res.status(500).send("服务器错误")
+})
+
+// 优化监听配置
+const server = app.listen(process.env.PORT || 5000, () => {
+  console.log("服务器启动在端口:", server.address().port)
+})
+
+// 增加连接处理
+server.keepAliveTimeout = 65000
+server.headersTimeout = 66000
