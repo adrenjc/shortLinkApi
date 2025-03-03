@@ -8,6 +8,7 @@ const express = require("express")
 const cors = require("cors")
 const connectDB = require("./src/config/db")
 const router = require("./src/routes")
+const rateLimit = require("express-rate-limit")
 
 const app = express()
 
@@ -31,7 +32,16 @@ app.use((req, res, next) => {
   next()
 })
 
-// 添加连接错误处理
+// 添加请求限流
+const limiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1分钟
+  max: 1000, // 每个IP最多1000个请求
+})
+
+// 应用限流
+app.use(limiter)
+
+// 优化错误处理
 app.use((err, req, res, next) => {
   console.error("服务器错误:", err)
   res.status(500).send("服务器错误")
@@ -42,6 +52,7 @@ const server = app.listen(process.env.PORT || 5000, () => {
   console.log("服务器启动在端口:", server.address().port)
 })
 
-// 增加连接处理
+// 优化连接处理
 server.keepAliveTimeout = 65000
 server.headersTimeout = 66000
+server.maxConnections = 10000 // 最大连接数
