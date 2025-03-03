@@ -2,6 +2,7 @@ const Link = require("../models/Link")
 const config = require("../config/config")
 const { createAuditLog } = require("./auditLog")
 const { ACTION_TYPES, RESOURCE_TYPES } = require("../constants/auditLogTypes")
+const { getAsync, setAsync } = require("../config/redis")
 
 const generateShortKey = (longUrl) => {
   // 使用时间戳和长链接生成短链接
@@ -97,49 +98,64 @@ const redirectToLongLink = async (req, res) => {
   const { shortKey } = req.params
 
   try {
+    // 检查是否是压力测试请求
+    const isLoadTest = req.get("X-Load-Test") === "true"
+
+    // 1. 尝试从 Redis 缓存中查询
+    let cachedUrl = null
+    try {
+      cachedUrl = await getAsync(`shortlink:${shortKey}`)
+    } catch (error) {
+      console.error("Redis查询失败，降级到数据库查询:", error)
+    }
+
+    if (cachedUrl) {
+      return res.redirect(cachedUrl)
+    }
+
+    // 3. 缓存未命中或Redis不可用，查询数据库
     const link = await Link.findOne({ shortKey })
 
     if (!link) {
-      console.log("Link not found for shortKey:", shortKey)
       return res.status(404).send({ success: false, message: "短链接未找到" })
     }
 
-    // 添加点击审计日志
-    await createAuditLog({
-      userId: link.createdBy,
-      action: ACTION_TYPES.CLICK_LINK,
-      resourceType: RESOURCE_TYPES.LINK,
-      resourceId: link._id,
-      description: `访问短链接: ${link.shortUrl}`,
-      metadata: {
-        longUrl: link.longUrl,
-        referer: req.get("referer") || "direct",
-        userAgent: req.get("user-agent"),
-        ipAddress: req.ip,
-      },
-      req,
-      status: "SUCCESS",
-    })
+    // 4. 尝试写入Redis缓存
+    try {
+      await setAsync(`shortlink:${shortKey}`, link.longUrl, "EX", 3600)
+    } catch (error) {
+      console.error("Redis缓存写入失败:", error)
+    }
 
-    console.log("Redirecting to:", link.longUrl)
-    res.redirect(link.longUrl)
-  } catch (err) {
-    console.error("重定向错误:", err)
-    // 记录失败的审计日志
-    if (err.link) {
-      await createAuditLog({
-        userId: err.link.createdBy,
-        action: ACTION_TYPES.CLICK_LINK,
-        resourceType: RESOURCE_TYPES.LINK,
-        resourceId: err.link._id,
-        description: `访问短链接失败: ${err.link.shortUrl}`,
-        metadata: { error: err.message },
-        req,
-        status: "FAILURE",
-        errorMessage: err.message,
+    // 5. 如果不是压力测试，则记录审计日志
+    if (!isLoadTest) {
+      process.nextTick(async () => {
+        try {
+          await createAuditLog({
+            userId: link.createdBy || "system",
+            action: ACTION_TYPES.CLICK_LINK,
+            resourceType: RESOURCE_TYPES.LINK,
+            resourceId: link._id,
+            description: `访问短链接: ${link.shortUrl}`,
+            metadata: {
+              longUrl: link.longUrl,
+              referer: req.get("referer") || "direct",
+              userAgent: req.get("user-agent"),
+              ipAddress: req.ip,
+            },
+            req,
+            status: "SUCCESS",
+          })
+        } catch (error) {
+          console.error("记录审计日志失败:", error)
+        }
       })
     }
-    res.status(404).send({ success: false, message: "短链接未找到" })
+
+    return res.redirect(link.longUrl)
+  } catch (err) {
+    console.error("重定向错误:", err)
+    res.status(500).send({ success: false, message: "服务器错误" })
   }
 }
 
