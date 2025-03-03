@@ -5,19 +5,9 @@ const config = {
     isDev: true,
   },
   production: {
-    domains: [
-      {
-        baseUrl: "https://adrenjc.top",
-        domain: "adrenjc.top",
-      },
-      {
-        baseUrl: "https://duckchat.icu",
-        domain: "duckchat.icu",
-      },
-    ],
     // 默认使用第一个域名
-    baseUrl: process.env.BASE_URL || "https://adrenjc.top",
-    domain: process.env.DOMAIN || "adrenjc.top",
+    baseUrl: process.env.BASE_URL,
+    domain: process.env.DOMAIN,
     isDev: false,
   },
 }

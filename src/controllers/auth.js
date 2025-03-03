@@ -167,7 +167,23 @@ exports.getUser = async (req, res) => {
       return res.status(401).json({ success: false, message: "token失效" })
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET)
+    let decoded
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET)
+    } catch (jwtError) {
+      console.error("JWT验证错误:", jwtError.name, jwtError.message)
+      if (jwtError.name === "TokenExpiredError") {
+        return res.status(401).json({
+          success: false,
+          message: "登录已过期，请重新登录",
+        })
+      }
+      return res.status(401).json({
+        success: false,
+        message: "无效的登录凭证",
+      })
+    }
+
     const userId = decoded.user.id
 
     // 查找用户并填充角色和权限信息
