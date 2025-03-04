@@ -1,74 +1,51 @@
 version: '3.8'
 
 services:
-  app:
-    build: .
-    ports:
-      - "8080:8080"
-    environment:
-      - NODE_ENV=production
-      - MONGO_URI=mongodb://mongodb:27017/shortlink
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - PM2_PUBLIC_KEY=${PM2_PUBLIC_KEY}
-      - PM2_SECRET_KEY=${PM2_SECRET_KEY}
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - ./logs:/app/logs
-      - ./ecosystem.config.js:/app/ecosystem.config.js
-    networks:
-      - shortlink-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  mongodb:
-    image: registry.cn-hangzhou.aliyuncs.com/google_containers/mongo:latest
+  # MongoDB 服务
+  mongo:
+    image: mongo:6.0
+    container_name: shortlink-mongo
+    restart: always
     ports:
       - "27017:27017"
     volumes:
-      - mongodb_data:/data/db
-      - ./mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
-    networks:
-      - shortlink-network
-    restart: unless-stopped
-    command: ["--replSet", "rs0", "--bind_ip_all"]
+      - mongo_data:/data/db
+    command: ["--replSet", "rs0"]
     healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      test: mongosh --eval "rs.initiate()"
       interval: 10s
       timeout: 10s
-      retries: 5
-      start_period: 40s
+      retries: 3
 
+  # Redis 服务
   redis:
-    image: registry.cn-hangzhou.aliyuncs.com/google_containers/redis:latest
+    image: redis:7-alpine
+    container_name: shortlink-redis
+    restart: always
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
-      - ./redis.conf:/usr/local/etc/redis/redis.conf
-    networks:
-      - shortlink-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
 
-networks:
-  shortlink-network:
-    driver: bridge
+  # 后端服务
+  api:
+    build: .
+    container_name: shortlink-api
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mongo
+      - redis
+    environment:
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://mongo:27017/shortlink?replicaSet=rs0
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - PORT=8080
+    volumes:
+      - ./logs:/app/logs
 
 volumes:
-  mongodb_data:
+  mongo_data:
   redis_data: 
