@@ -156,11 +156,6 @@ const safeSetAsync = async (key, value, ...args) => {
   }
 }
 
-// 添加连接池监控
-setInterval(() => {
-  console.log(`当前连接池状态: ${pool.clients.size}/${pool.maxSize}`)
-}, 5000)
-
 module.exports = {
   client: redisClient,
   getAsync: safeGetAsync,

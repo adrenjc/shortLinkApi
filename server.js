@@ -9,6 +9,7 @@ const cors = require("cors")
 const connectDB = require("./src/config/db")
 const router = require("./src/routes")
 const rateLimit = require("express-rate-limit")
+const mongoose = require("mongoose")
 
 const app = express()
 
@@ -18,6 +19,26 @@ app.use(express.json()) // 解析JSON请求体
 
 // 连接数据库
 connectDB()
+
+// 添加数据库连接监控
+mongoose.connection.on("error", (err) => {
+  console.error("MongoDB 连接错误:", err)
+})
+
+mongoose.connection.on("connected", () => {
+  console.log("MongoDB 连接成功")
+})
+
+// 监控慢查询
+mongoose.set("debug", (collectionName, method, query, doc) => {
+  const start = Date.now()
+  return () => {
+    const time = Date.now() - start
+    if (time > 100) {
+      console.warn(`慢查询: ${collectionName}.${method} (${time}ms)`, query)
+    }
+  }
+})
 
 // 路由
 app.use("/api", router)

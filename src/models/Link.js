@@ -21,6 +21,10 @@ const linkSchema = new mongoose.Schema(
 // 创建复合唯一索引，确保同一用户下的短链接不重复
 linkSchema.index({ shortKey: 1, customDomain: 1 }, { unique: true })
 
+// 添加必要的索引
+linkSchema.index({ createdBy: 1 })
+linkSchema.index({ createdAt: -1 })
+
 const Link = mongoose.model("Link", linkSchema)
 
 module.exports = Link
