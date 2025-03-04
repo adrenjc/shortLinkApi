@@ -7,17 +7,28 @@ services:
       - "8080:8080"
     environment:
       - NODE_ENV=production
+      - MONGO_URI=mongodb://mongodb:27017/shortlink
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - PM2_PUBLIC_KEY=${PM2_PUBLIC_KEY}
       - PM2_SECRET_KEY=${PM2_SECRET_KEY}
     depends_on:
-      - mongodb
-      - redis
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ./logs:/app/logs
       - ./ecosystem.config.js:/app/ecosystem.config.js
     networks:
       - shortlink-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   mongodb:
     image: mongo:latest
@@ -25,9 +36,17 @@ services:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
     networks:
       - shortlink-network
     restart: unless-stopped
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
 
   redis:
     image: redis:latest
@@ -35,9 +54,16 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
     networks:
       - shortlink-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
 networks:
   shortlink-network:
