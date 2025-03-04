@@ -1,5 +1,8 @@
 # 使用 Node.js 18 作为基础镜像
-FROM node:18-alpine
+FROM registry.cn-hangzhou.aliyuncs.com/google_containers/node:18-alpine
+
+# 设置 npm 国内镜像
+RUN npm config set registry https://registry.npmmirror.com
 
 # 设置工作目录
 WORKDIR /app
