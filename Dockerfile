@@ -1,7 +1,7 @@
 # 使用 Node.js 18 作为基础镜像
-FROM node:18-alpine
+FROM registry.cn-hangzhou.aliyuncs.com/public-namespace/node:18-alpine
 
-# 设置 npm 国内镜像
+# 设置 npm 淘宝镜像源
 RUN npm config set registry https://registry.npmmirror.com
 
 # 设置工作目录
@@ -11,8 +11,8 @@ WORKDIR /app
 COPY package*.json ./
 
 # 安装依赖和 PM2
-RUN npm install
-RUN npm install pm2 -g
+RUN npm install --registry=https://registry.npmmirror.com
+RUN npm install -g pm2 --registry=https://registry.npmmirror.com
 
 # 复制源代码
 COPY . .

@@ -3,6 +3,10 @@
 # 设置错误处理
 set -e
 
+# 设置更长的超时时间
+export DOCKER_CLIENT_TIMEOUT=120
+export COMPOSE_HTTP_TIMEOUT=120
+
 # 清理函数
 cleanup() {
     echo "清理环境..."
@@ -27,7 +31,7 @@ docker-compose down || true
 
 # 拉取镜像（添加重试机制）
 echo "拉取镜像..."
-max_attempts=3
+max_attempts=5  # 增加重试次数
 attempt=1
 while [ $attempt -le $max_attempts ]; do
     if docker-compose pull; then
@@ -35,7 +39,7 @@ while [ $attempt -le $max_attempts ]; do
     fi
     echo "拉取失败，第 $attempt 次重试..."
     attempt=$((attempt + 1))
-    sleep 5
+    sleep 10  # 增加重试间隔
 done
 
 if [ $attempt -gt $max_attempts ]; then
@@ -53,7 +57,7 @@ docker-compose up -d
 
 # 等待服务启动
 echo "等待服务启动..."
-sleep 15
+sleep 20  # 增加等待时间
 
 # 初始化 MongoDB 副本集
 echo "初始化 MongoDB 副本集..."
@@ -61,7 +65,7 @@ docker exec shortlink-mongo mongosh --eval "rs.initiate()" || true
 
 # 等待 MongoDB 副本集初始化
 echo "等待 MongoDB 副本集就绪..."
-sleep 10
+sleep 15  # 增加等待时间
 
 # 运行数据库初始化脚本
 echo "初始化数据库..."
