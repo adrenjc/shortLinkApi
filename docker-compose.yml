@@ -31,7 +31,7 @@ services:
       start_period: 40s
 
   mongodb:
-    image: mongo:latest
+    image: registry.cn-hangzhou.aliyuncs.com/google_containers/mongo:latest
     ports:
       - "27017:27017"
     volumes:
@@ -49,7 +49,7 @@ services:
       start_period: 40s
 
   redis:
-    image: redis:latest
+    image: registry.cn-hangzhou.aliyuncs.com/google_containers/redis:latest
     ports:
       - "6379:6379"
     volumes:
