@@ -1,5 +1,5 @@
 # 使用 Node.js 18 作为基础镜像
-FROM registry.cn-hangzhou.aliyuncs.com/public-namespace/node:18-alpine
+FROM node:18-alpine
 
 # 设置 npm 淘宝镜像源
 RUN npm config set registry https://registry.npmmirror.com
@@ -24,4 +24,4 @@ RUN mkdir -p /app/logs
 EXPOSE 8080
 
 # 使用 PM2 启动应用
-CMD ["pm2-runtime", "ecosystem.config.js"] 
+CMD ["pm2-runtime", "ecosystem.config.js"]
