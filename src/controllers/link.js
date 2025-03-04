@@ -1,5 +1,4 @@
 const Link = require("../models/Link")
-const config = require("../config/config")
 const { createAuditLog } = require("./auditLog")
 const { ACTION_TYPES, RESOURCE_TYPES } = require("../constants/auditLogTypes")
 const { getAsync, setAsync } = require("../config/redis")
@@ -12,8 +11,7 @@ const generateShortKey = (longUrl) => {
 
 const createShortLink = async (req, res) => {
   const { longUrl, customDomain } = req.body
-  const env = process.env.NODE_ENV || "development"
-  const isDev = config.getConfig(env).isDev
+  const isDev = process.env.NODE_ENV === "development"
 
   console.log("Received request body:", req.body)
 
