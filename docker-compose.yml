@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # MongoDB 服务
   mongo:
-    image: registry.cn-hangzhou.aliyuncs.com/google_containers/mongo:6.0
+    image: mongo:6.0
     container_name: shortlink-mongo
     restart: always
     ports:
@@ -19,7 +19,7 @@ services:
 
   # Redis 服务
   redis:
-    image: registry.cn-hangzhou.aliyuncs.com/google_containers/redis:7-alpine
+    image: redis:7-alpine
     container_name: shortlink-redis
     restart: always
     ports:
@@ -32,8 +32,6 @@ services:
     build: 
       context: .
       dockerfile: Dockerfile
-      args:
-        - REGISTRY_MIRROR=registry.cn-hangzhou.aliyuncs.com/google_containers
     container_name: shortlink-api
     restart: always
     ports:
