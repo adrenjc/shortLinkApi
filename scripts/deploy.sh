@@ -80,69 +80,71 @@ if ! service_exists_and_running mongod; then
     # 配置 MongoDB
     echo "配置 MongoDB..."
     sudo tee /etc/mongod.conf > /dev/null << EOL
+# 网络配置
+net:
+  port: 27017
+  bindIp: 127.0.0.1
+
+# 存储配置
 storage:
   dbPath: /var/lib/mongodb
   journal:
     enabled: true
 
+# 系统日志配置
 systemLog:
   destination: file
   logAppend: true
   path: /var/log/mongodb/mongod.log
 
-net:
-  port: 27017
-  bindIp: 127.0.0.1
-
+# 副本集配置
 replication:
   replSetName: "rs0"
 EOL
 
-    # 创建日志目录
+    # 清理并重新创建数据目录
+    echo "重置 MongoDB 数据目录..."
+    sudo systemctl stop mongod
+    sudo rm -rf /var/lib/mongodb/*
+    sudo rm -rf /var/log/mongodb/*
+    sudo mkdir -p /var/lib/mongodb
     sudo mkdir -p /var/log/mongodb
+    sudo chown -R mongodb:mongodb /var/lib/mongodb
     sudo chown -R mongodb:mongodb /var/log/mongodb
-    
-    echo "正在启动 MongoDB..."
+
+    # 重启 MongoDB 服务
+    echo "重启 MongoDB 服务..."
     sudo systemctl daemon-reload
     sudo systemctl start mongod
     sudo systemctl enable mongod
-    
+
     # 等待 MongoDB 启动
     echo "等待 MongoDB 启动..."
     sleep 10
-    
+
     # 检查 MongoDB 状态
     if ! systemctl is-active --quiet mongod; then
         echo "MongoDB 启动失败，查看日志..."
         sudo journalctl -u mongod -n 50
         exit 1
     fi
-    
-    # 检查副本集是否已初始化
-    echo "初始化副本集..."
-    sleep 10  # 增加等待时间
-
-    # 先检查 MongoDB 是否正在运行
-    if ! systemctl is-active --quiet mongod; then
-        echo "MongoDB 未运行，正在重启..."
-        sudo systemctl restart mongod
-        sleep 10
-    fi
 
     # 初始化副本集
-    echo "正在初始化副本集..."
+    echo "初始化副本集..."
+    sleep 5  # 给 MongoDB 一些额外时间完全启动
+
     mongosh --eval '
-      config = {
+    config = {
         "_id" : "rs0",
         "members" : [
-          {
-            "_id" : 0,
-            "host" : "localhost:27017",
-            "priority" : 1
-          }
+            {
+                "_id" : 0,
+                "host" : "localhost:27017",
+                "priority" : 1
+            }
         ]
-      };
-      rs.initiate(config);
+    };
+    rs.initiate(config);
     ' || {
         echo "副本集初始化失败，查看日志..."
         sudo journalctl -u mongod -n 50
@@ -174,19 +176,19 @@ EOL
         echo "副本集状态检查失败"
         exit 1
     fi
+
+    # 验证 MongoDB 连接
+    echo "验证 MongoDB 连接..."
+    if ! mongosh --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
+        echo "MongoDB 连接测试失败"
+        echo "检查 MongoDB 状态..."
+        sudo systemctl status mongod
+        echo "检查 MongoDB 日志..."
+        sudo tail -n 50 /var/log/mongodb/mongod.log
+        exit 1
+    fi
 else
     echo "MongoDB 已安装并运行中"
-fi
-
-# 验证 MongoDB 连接
-echo "验证 MongoDB 连接..."
-if ! mongosh --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
-    echo "MongoDB 连接测试失败"
-    echo "检查 MongoDB 状态..."
-    sudo systemctl status mongod
-    echo "检查 MongoDB 日志..."
-    sudo tail -n 50 /var/log/mongodb/mongod.log
-    exit 1
 fi
 
 # 检查并安装 Redis
@@ -265,15 +267,22 @@ sudo ufw status | grep -q "Status: active" || {
 
 # 使用 PM2 启动应用
 echo "正在启动应用..."
-pm2 describe shortlink-backend > /dev/null
-if [ $? -eq 0 ]; then
+# 修改日志路径
+sudo mkdir -p /logs
+sudo chown -R $USER:$USER /logs
+
+# 检查应用是否已经在运行
+if pm2 list | grep -q "shortlink-backend"; then
     echo "应用已在运行，正在重启..."
-    pm2 reload ecosystem.config.js
+    pm2 reload shortlink-backend
 else
     echo "首次启动应用..."
+    # 确保在正确的目录下
+    cd /var/www/shortlinkapi
     pm2 start ecosystem.config.js
 fi
 
+# 保存 PM2 配置并设置开机自启
 pm2 save
 pm2 startup
 

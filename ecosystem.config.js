@@ -16,8 +16,8 @@ module.exports = {
       },
 
       // 修改日志路径，确保与 Docker 挂载卷匹配
-      error_file: "/app/logs/err.log",
-      out_file: "/app/logs/out.log",
+      error_file: "/logs/err.log",
+      out_file: "/logs/out.log",
 
       // 优化容器环境的配置
       exp_backoff_restart_delay: 1000,
