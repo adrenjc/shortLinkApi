@@ -120,17 +120,59 @@ EOL
     
     # 检查副本集是否已初始化
     echo "初始化副本集..."
-    sleep 5  # 给 MongoDB 一些额外时间完全启动
-    
-    if ! mongosh --eval "rs.status()" 2>/dev/null | grep -q "ok.*:.*1"; then
-        echo "正在初始化 MongoDB 副本集..."
-        mongosh --eval 'rs.initiate({_id: "rs0", members: [{_id: 0, host: "localhost:27017"}]})' || {
-            echo "副本集初始化失败，查看日志..."
-            sudo journalctl -u mongod -n 50
+    sleep 10  # 增加等待时间
+
+    # 先检查 MongoDB 是否正在运行
+    if ! systemctl is-active --quiet mongod; then
+        echo "MongoDB 未运行，正在重启..."
+        sudo systemctl restart mongod
+        sleep 10
+    fi
+
+    # 初始化副本集
+    echo "正在初始化副本集..."
+    mongosh --eval '
+      config = {
+        "_id" : "rs0",
+        "members" : [
+          {
+            "_id" : 0,
+            "host" : "localhost:27017",
+            "priority" : 1
+          }
+        ]
+      };
+      rs.initiate(config);
+    ' || {
+        echo "副本集初始化失败，查看日志..."
+        sudo journalctl -u mongod -n 50
+        exit 1
+    }
+
+    # 等待副本集初始化完成
+    echo "等待副本集初始化完成..."
+    for i in {1..30}; do
+        if mongosh --eval "rs.status()" | grep -q '"ok" : 1'; then
+            echo "副本集初始化成功！"
+            break
+        fi
+        if [ $i -eq 30 ]; then
+            echo "副本集初始化超时"
             exit 1
-        }
-    else
-        echo "MongoDB 副本集已初始化"
+        fi
+        echo "等待副本集就绪... ($i/30)"
+        sleep 2
+    done
+
+    # 确保副本集完全就绪
+    echo "等待副本集完全就绪..."
+    sleep 10
+
+    # 验证副本集状态
+    echo "验证副本集状态..."
+    if ! mongosh --eval "rs.status()" | grep -q '"ok" : 1'; then
+        echo "副本集状态检查失败"
+        exit 1
     fi
 else
     echo "MongoDB 已安装并运行中"
