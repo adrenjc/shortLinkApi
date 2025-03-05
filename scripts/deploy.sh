@@ -55,9 +55,27 @@ fi
 if ! service_exists_and_running mongod; then
     echo "正在安装 MongoDB..."
     if ! command_exists mongod; then
-        wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | sudo apt-key add -
-        echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu $(lsb_release -cs)/mongodb-org/6.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
+        # 获取 Ubuntu 版本代号
+        UBUNTU_VERSION=$(lsb_release -cs)
+        
+        # 如果是 Ubuntu 24.04 (noble)，使用 Ubuntu 22.04 (jammy) 的仓库
+        if [ "$UBUNTU_VERSION" = "noble" ]; then
+            UBUNTU_VERSION="jammy"
+        fi
+        
+        # 导入 MongoDB 公钥
+        curl -fsSL https://pgp.mongodb.com/server-6.0.asc | \
+            sudo gpg -o /usr/share/keyrings/mongodb-server-6.0.gpg \
+            --dearmor
+        
+        # 添加 MongoDB 仓库
+        echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-6.0.gpg ] https://repo.mongodb.org/apt/ubuntu ${UBUNTU_VERSION}/mongodb-org/6.0 multiverse" | \
+            sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
+        
+        # 更新包列表
         sudo apt-get update
+        
+        # 安装 MongoDB
         sudo apt-get install -y mongodb-org
     fi
     
