@@ -208,36 +208,6 @@ else
     echo "Redis 已安装并运行中"
 fi
 
-# 检查并安装 Nginx extras
-if ! dpkg -l | grep -q nginx-extras; then
-    echo "正在安装 Nginx extras..."
-    sudo apt-get remove -y nginx nginx-common || true
-    sudo apt-get update
-    sudo apt-get install -y nginx-extras
-    
-    # 创建缓存目录
-    echo "创建 Nginx 缓存目录..."
-    sudo mkdir -p /var/cache/nginx
-    sudo chown -R www-data:www-data /var/cache/nginx
-    
-    # 验证安装
-    echo "验证 Nginx 安装..."
-    if nginx -V 2>&1 | grep -q "http_cache_purge_module"; then
-        echo "Nginx cache purge module 安装成功"
-    else
-        echo "警告: Nginx cache purge module 可能未正确安装"
-    fi
-else
-    echo "Nginx extras 已安装"
-fi
-
-# 确保 Nginx 缓存目录存在
-if [ ! -d "/var/cache/nginx" ]; then
-    echo "创建 Nginx 缓存目录..."
-    sudo mkdir -p /var/cache/nginx
-    sudo chown -R www-data:www-data /var/cache/nginx
-fi
-
 # 检查并创建应用目录
 if [ ! -d "/var/www/shortlinkapi" ]; then
     echo "正在创建应用目录..."
@@ -331,8 +301,6 @@ echo "MongoDB 状态:"
 sudo systemctl status mongod --no-pager | grep "Active:"
 echo "Redis 状态:"
 sudo systemctl status redis-server --no-pager | grep "Active:"
-echo "Nginx 模块状态:"
-nginx -V 2>&1 | grep "http_cache_purge_module" || echo "警告: cache purge 模块未安装"
 echo "Nginx 状态:"
 sudo systemctl status nginx --no-pager | grep "Active:"
 echo "防火墙状态:"
