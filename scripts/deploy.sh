@@ -88,8 +88,6 @@ net:
 # 存储配置
 storage:
   dbPath: /var/lib/mongodb
-  journal:
-    enabled: true
 
 # 系统日志配置
 systemLog:
@@ -209,29 +207,29 @@ else
 fi
 
 # 检查并创建应用目录
-if [ ! -d "/var/www/shortlinkapi" ]; then
+if [ ! -d "/var/www/shortLinkApi" ]; then
     echo "正在创建应用目录..."
-    sudo mkdir -p /var/www/shortlinkapi
-    sudo chown -R $USER:$USER /var/www/shortlinkapi
+    sudo mkdir -p /var/www/shortLinkApi
+    sudo chown -R $USER:$USER /var/www/shortLinkApi
 else
     echo "应用目录已存在"
 fi
 
 # 检查并创建日志目录
-if [ ! -d "/var/log/shortlinkapi" ]; then
+if [ ! -d "/var/log/shortLinkApi" ]; then
     echo "正在创建日志目录..."
-    sudo mkdir -p /var/log/shortlinkapi
-    sudo chown -R $USER:$USER /var/log/shortlinkapi
+    sudo mkdir -p /var/log/shortLinkApi
+    sudo chown -R $USER:$USER /var/log/shortLinkApi
 else
     echo "日志目录已存在"
 fi
 
 # 检查项目文件
-cd /var/www/shortlinkapi
+cd /var/www/shortLinkApi
 if [ ! -f "package.json" ]; then
-    echo "请确保项目代码已经复制到 /var/www/shortlinkapi 目录"
+    echo "请确保项目代码已经复制到 /var/www/shortLinkApi 目录"
     echo "你可以使用以下命令克隆项目："
-    echo "git clone git@github.com:adrenjc/shortLinkApi.git /var/www/shortlinkapi"
+    echo "git clone git@github.com:adrenjc/shortLinkApi.git /var/www/shortLinkApi"
     exit 1
 fi
 
@@ -278,7 +276,7 @@ if pm2 list | grep -q "shortlink-backend"; then
 else
     echo "首次启动应用..."
     # 确保在正确的目录下
-    cd /var/www/shortlinkapi
+    cd /var/www/shortLinkApi
     pm2 start ecosystem.config.js
 fi
 
