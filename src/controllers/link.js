@@ -1,7 +1,8 @@
 const Link = require("../models/Link")
 const { createAuditLog } = require("./auditLog")
 const { ACTION_TYPES, RESOURCE_TYPES } = require("../constants/auditLogTypes")
-const { getAsync, setAsync } = require("../config/redis")
+const { getAsync, setAsync, delAsync } = require("../config/redis")
+const axios = require("axios")
 
 const generateShortKey = (longUrl) => {
   // 使用时间戳和长链接生成短链接
@@ -53,9 +54,21 @@ const createShortLink = async (req, res) => {
     }
 
     // 生产环境的处理
-    const baseUrl = customDomain
-      ? `https://${customDomain}`
-      : `https://${currentDomain}`
+    let baseUrl
+
+    // 检查是否是IP地址访问
+    const isIpAddress = /^(\d{1,3}\.){3}\d{1,3}(:\d+)?$/.test(currentDomain)
+
+    if (customDomain) {
+      // 如果有自定义域名，使用 https
+      baseUrl = `https://${customDomain}`
+    } else if (isIpAddress) {
+      // 如果是IP地址访问，使用 http
+      baseUrl = `http://${currentDomain}`
+    } else {
+      // 如果是域名访问，使用 https
+      baseUrl = `https://${currentDomain}`
+    }
 
     const newLink = new Link({
       longUrl,
@@ -197,6 +210,7 @@ const deleteLink = async (req, res) => {
       _id: id,
       createdBy: req.user.id,
     })
+
     if (!link) {
       return res.status(404).json({ success: false, message: "链接未找到" })
     }
@@ -212,8 +226,33 @@ const deleteLink = async (req, res) => {
       req,
     })
 
-    res.json({ success: false, message: "链接已删除" })
+    // 清除 Redis 缓存
+    try {
+      await delAsync(`shortlink:${link.shortKey}`)
+    } catch (error) {
+      console.error("Redis缓存清除失败:", error)
+    }
+
+    // 清除 Nginx 缓存
+    try {
+      const nginxPurgeUrl = `${process.env.NGINX_INTERNAL_URL}/purge/r/${link.shortKey}`
+
+      await axios.get(nginxPurgeUrl, {
+        timeout: 5000,
+        headers: {
+          Host: req.get("host"),
+        },
+        validateStatus: function (status) {
+          return (status >= 200 && status < 300) || status === 404
+        },
+      })
+    } catch (error) {
+      console.error("Nginx缓存清除失败:", error.message)
+    }
+
+    res.json({ success: true, message: "链接已删除" }) // 修正 success 的值为 true
   } catch (err) {
+    console.error("删除短链接错误:", err)
     res.status(500).send({ success: false, message: "服务器错误" })
   }
 }
@@ -247,6 +286,33 @@ const updateLink = async (req, res) => {
       metadata: { longUrl: link.longUrl },
       req,
     })
+
+    // 清除 Redis 缓存
+    try {
+      await delAsync(`shortlink:${link.shortKey}`)
+    } catch (error) {
+      console.error("Redis缓存清除失败:", error)
+    }
+
+    // 清除 Nginx 缓存
+    try {
+      // 使用环境变量中配置的 Nginx 内部地址
+      const nginxPurgeUrl = `${process.env.NGINX_INTERNAL_URL}/purge/r/${link.shortKey}`
+
+      // 设置请求超时和重试
+      await axios.get(nginxPurgeUrl, {
+        timeout: 5000, // 5秒超时
+        headers: {
+          Host: req.get("host"), // 传递原始 host 头
+        },
+        validateStatus: function (status) {
+          return (status >= 200 && status < 300) || status === 404 // 404 也算成功（缓存可能不存在）
+        },
+      })
+    } catch (error) {
+      console.error("Nginx缓存清除失败:", error.message)
+      // 这里我们只记录错误，不影响正常流程
+    }
 
     res.json({ success: true, data: link })
   } catch (err) {
