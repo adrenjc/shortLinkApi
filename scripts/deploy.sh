@@ -131,30 +131,58 @@ EOL
     echo "初始化副本集..."
     sleep 5  # 给 MongoDB 一些额外时间完全启动
 
-    mongosh --eval '
-    config = {
-        "_id" : "rs0",
-        "members" : [
-            {
-                "_id" : 0,
-                "host" : "localhost:27017",
-                "priority" : 1
-            }
-        ]
-    };
-    rs.initiate(config);
-    ' || {
-        echo "副本集初始化失败，查看日志..."
-        sudo journalctl -u mongod -n 50
-        exit 1
-    }
+    # 尝试初始化副本集，如果失败则重试
+    for i in {1..3}; do
+        echo "尝试初始化副本集 (尝试 $i/3)..."
+        
+        # 停止 MongoDB
+        sudo systemctl stop mongod
+        
+        # 清理数据
+        sudo rm -rf /var/lib/mongodb/*
+        sudo rm -rf /var/log/mongodb/*
+        
+        # 重新创建目录
+        sudo mkdir -p /var/lib/mongodb
+        sudo mkdir -p /var/log/mongodb
+        
+        # 设置权限
+        sudo chown -R mongodb:mongodb /var/lib/mongodb
+        sudo chown -R mongodb:mongodb /var/log/mongodb
+        
+        # 启动 MongoDB
+        sudo systemctl start mongod
+        
+        # 等待服务启动
+        sleep 10
+        
+        # 初始化副本集
+        mongosh --eval '
+        rs.initiate({
+            _id: "rs0",
+            members: [
+                { _id: 0, host: "localhost:27017" }
+            ]
+        });' && break || {
+            echo "副本集初始化失败，正在重试..."
+            if [ $i -eq 3 ]; then
+                echo "副本集初始化失败，已达到最大重试次数"
+                exit 1
+            fi
+            sleep 5
+        }
+    done
 
     # 等待副本集初始化完成
     echo "等待副本集初始化完成..."
     for i in {1..30}; do
         if mongosh --eval "rs.status()" | grep -q '"ok" : 1'; then
             echo "副本集初始化成功！"
-            break
+            # 额外检查确保副本集完全就绪
+            if mongosh --eval "rs.status()" | grep -q '"stateStr" : "PRIMARY"'; then
+                echo "副本集主节点已就绪！"
+                break
+            fi
         fi
         if [ $i -eq 30 ]; then
             echo "副本集初始化超时"
@@ -170,21 +198,29 @@ EOL
 
     # 验证副本集状态
     echo "验证副本集状态..."
-    if ! mongosh --eval "rs.status()" | grep -q '"ok" : 1'; then
-        echo "副本集状态检查失败"
+    if ! mongosh --eval "rs.status()" | grep -q '"stateStr" : "PRIMARY"'; then
+        echo "副本集状态检查失败 - 未找到主节点"
         exit 1
     fi
 
     # 验证 MongoDB 连接
     echo "验证 MongoDB 连接..."
-    if ! mongosh --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
-        echo "MongoDB 连接测试失败"
-        echo "检查 MongoDB 状态..."
-        sudo systemctl status mongod
-        echo "检查 MongoDB 日志..."
-        sudo tail -n 50 /var/log/mongodb/mongod.log
-        exit 1
-    fi
+    for i in {1..5}; do
+        if mongosh --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
+            echo "MongoDB 连接测试成功！"
+            break
+        fi
+        if [ $i -eq 5 ]; then
+            echo "MongoDB 连接测试失败"
+            echo "检查 MongoDB 状态..."
+            sudo systemctl status mongod
+            echo "检查 MongoDB 日志..."
+            sudo tail -n 50 /var/log/mongodb/mongod.log
+            exit 1
+        fi
+        echo "重试 MongoDB 连接... ($i/5)"
+        sleep 2
+    done
 else
     echo "MongoDB 已安装并运行中"
 fi

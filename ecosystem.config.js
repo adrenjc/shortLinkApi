@@ -2,13 +2,13 @@ module.exports = {
   apps: [
     {
       name: "shortlink-backend",
-      script: "server.js",
+      script: "./server.js",
 
       // 进程配置 - 4核8G配置
       instances: "max", // 自动使用所有CPU核心
       exec_mode: "cluster",
       watch: false,
-      max_memory_restart: "1.5G", // 单个实例最大内存限制
+      max_memory_restart: "2G", // 使用 1G、1024M 这样的格式
 
       // 环境变量
       env: {
@@ -19,7 +19,7 @@ module.exports = {
       // 日志配置
       error_file: "/logs/err.log",
       out_file: "/logs/out.log",
-      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
       merge_logs: true,
       log_type: "json",
       max_logs: "5", // 可以保留更多日志
