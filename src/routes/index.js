@@ -24,6 +24,8 @@ const {
   deleteDomain,
   recheckDomain,
   getAllUsersDomains,
+  getDomainSSLStatus,
+  renewSSLCertificate,
 } = require("../controllers/domain")
 const { getAuditLogs, getAuditLogStats } = require("../controllers/auditLog")
 const {
@@ -89,6 +91,18 @@ router.delete(
   deleteDomain
 )
 router.post("/domains/:domain/recheck", recheckDomain)
+
+// SSL 证书管理路由
+router.get(
+  "/domains/:domain/ssl",
+  checkPermission(PERMISSION_CODES.DOMAIN_VIEW),
+  getDomainSSLStatus
+)
+router.post(
+  "/domains/:domain/ssl/renew",
+  checkPermission(PERMISSION_CODES.DOMAIN_MANAGE),
+  renewSSLCertificate
+)
 
 // 添加获取所有用户域名列表的路由
 router.get(

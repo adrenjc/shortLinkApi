@@ -16,6 +16,19 @@ const domainSchema = new mongoose.Schema({
     default: false,
   },
   verificationCode: String,
+  sslCertificate: {
+    certPath: String,
+    keyPath: String,
+    issuedAt: Date,
+    expiresAt: Date,
+    status: {
+      type: String,
+      enum: ["pending", "active", "expired", "error"],
+      default: "pending",
+    },
+    lastRenewalAttempt: Date,
+    renewalError: String,
+  },
   createdAt: {
     type: Date,
     default: Date.now,

@@ -10,6 +10,7 @@ const connectDB = require("./src/config/db")
 const router = require("./src/routes")
 const rateLimit = require("express-rate-limit")
 const mongoose = require("mongoose")
+const sslService = require("./src/services/sslService")
 
 const app = express()
 
@@ -68,12 +69,37 @@ app.use((err, req, res, next) => {
   res.status(500).send("服务器错误")
 })
 
-// 优化监听配置
-const server = app.listen(process.env.PORT || 5000, () => {
-  console.log("服务器启动在端口:", server.address().port)
-})
+// 初始化 SSL 服务
+async function initializeSSLService() {
+  try {
+    await sslService.initialize()
+    await sslService.setupAutoRenewal()
+    console.log("SSL service initialized successfully")
+  } catch (error) {
+    console.error("Failed to initialize SSL service:", error)
+  }
+}
 
-// 优化连接处理
-server.keepAliveTimeout = 65000
-server.headersTimeout = 66000
-server.maxConnections = 10000 // 最大连接数
+// 启动服务器
+const startServer = async () => {
+  try {
+    await connectDB()
+    console.log("MongoDB connected successfully")
+
+    await initializeSSLService()
+
+    const server = app.listen(process.env.PORT || 5000, () => {
+      console.log("服务器启动在端口:", server.address().port)
+    })
+
+    // 优化连接处理
+    server.keepAliveTimeout = 65000
+    server.headersTimeout = 66000
+    server.maxConnections = 10000 // 最大连接数
+  } catch (error) {
+    console.error("Server startup error:", error)
+    process.exit(1)
+  }
+}
+
+startServer()

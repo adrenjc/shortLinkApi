@@ -4,6 +4,9 @@ const dns = require("dns").promises
 const { createAuditLog } = require("./auditLog")
 const Link = require("../models/Link")
 const { ACTION_TYPES, RESOURCE_TYPES } = require("../constants/auditLogTypes")
+const sslService = require("../services/sslService")
+const fs = require("fs").promises
+const path = require("path")
 
 // 添加新域名
 const addDomain = async (req, res) => {
@@ -94,6 +97,23 @@ const verifyDomain = async (req, res) => {
       if (verified) {
         domainRecord.verified = true
         await domainRecord.save()
+
+        // 域名验证成功后，自动申请 SSL 证书
+        try {
+          await sslService.issueCertificate(domain, req.user.id)
+        } catch (sslError) {
+          console.error("SSL certificate issuance failed:", sslError)
+          // 不阻止域名验证流程，但记录错误
+          await createAuditLog({
+            userId: req.user.id,
+            action: ACTION_TYPES.SSL_CERTIFICATE_ERROR,
+            resourceType: RESOURCE_TYPES.DOMAIN,
+            description: `SSL 证书申请失败: ${domain}`,
+            metadata: { domain, error: sslError.message },
+            req,
+            status: "FAILURE",
+          })
+        }
 
         // 添加审计日志
         await createAuditLog({
@@ -284,36 +304,63 @@ const deleteDomain = async (req, res) => {
     session = await Domain.startSession()
 
     // 开始事务
-    const result = await session.withTransaction(async () => {
-      // 查找域名是否存在
-      const domainDoc = await Domain.findOne({ domain }).session(session)
+    const result = await session.withTransaction(
+      async () => {
+        // 查找域名是否存在，使用 primary 读取首选项
+        const domainDoc = await Domain.findOne({ domain })
+          .session(session)
+          .readPreference("primary")
 
-      if (!domainDoc) {
-        throw new Error("域名未找到")
+        if (!domainDoc) {
+          throw new Error("域名未找到")
+        }
+
+        // 删除 SSL 证书文件（如果存在）
+        if (domainDoc.sslCertificate?.certPath) {
+          try {
+            await fs.unlink(domainDoc.sslCertificate.certPath)
+            await fs.unlink(domainDoc.sslCertificate.keyPath)
+            await fs.unlink(
+              path.join(
+                path.dirname(domainDoc.sslCertificate.certPath),
+                "fullchain.pem"
+              )
+            )
+          } catch (error) {
+            console.error(
+              `Error deleting SSL certificate files for ${domain}:`,
+              error
+            )
+          }
+        }
+
+        // 在事务中删除域名
+        await Domain.deleteOne({ domain }).session(session)
+
+        // 在事务中删除相关短链接
+        await Link.deleteMany({
+          customDomain: domain,
+        }).session(session)
+
+        // 在事务中添加审计日志
+        await createAuditLog({
+          userId: req.user.id,
+          action: ACTION_TYPES.DELETE_DOMAIN,
+          resourceType: RESOURCE_TYPES.DOMAIN,
+          resourceId: domainDoc._id,
+          description: `删除域名及相关短链: ${domain}`,
+          metadata: { domain },
+          req,
+          status: "SUCCESS",
+        })
+
+        return domainDoc
+      },
+      {
+        // 设置事务选项，确保使用 primary 读取首选项
+        readPreference: "primary",
       }
-
-      // 在事务中删除域名
-      await Domain.deleteOne({ domain }).session(session)
-
-      // 在事务中删除相关短链接
-      await Link.deleteMany({
-        customDomain: domain,
-      }).session(session)
-
-      // 在事务中添加审计日志
-      await createAuditLog({
-        userId: req.user.id,
-        action: ACTION_TYPES.DELETE_DOMAIN,
-        resourceType: RESOURCE_TYPES.DOMAIN,
-        resourceId: domainDoc._id,
-        description: `删除域名及相关短链: ${domain}`,
-        metadata: { domain },
-        req,
-        status: "SUCCESS",
-      })
-
-      return domainDoc
-    })
+    )
 
     res.json({
       success: true,
@@ -410,6 +457,73 @@ const getAllUsersDomains = async (req, res) => {
   }
 }
 
+// 获取域名 SSL 证书状态
+const getDomainSSLStatus = async (req, res) => {
+  const { domain } = req.params
+
+  try {
+    const domainDoc = await Domain.findOne({
+      domain,
+      userId: req.user.id,
+    })
+
+    if (!domainDoc) {
+      return res.status(404).json({
+        success: false,
+        message: "域名未找到",
+      })
+    }
+
+    const status = await sslService.checkCertificateStatus(domain)
+
+    res.json({
+      success: true,
+      data: {
+        status,
+        certificate: domainDoc.sslCertificate,
+      },
+    })
+  } catch (err) {
+    console.error("获取 SSL 状态错误:", err)
+    res.status(500).json({
+      success: false,
+      message: err.message || "获取 SSL 状态失败",
+    })
+  }
+}
+
+// 手动更新 SSL 证书
+const renewSSLCertificate = async (req, res) => {
+  const { domain } = req.params
+
+  try {
+    const domainDoc = await Domain.findOne({
+      domain,
+      userId: req.user.id,
+    })
+
+    if (!domainDoc) {
+      return res.status(404).json({
+        success: false,
+        message: "域名未找到",
+      })
+    }
+
+    await sslService.renewCertificate(domain, req.user.id)
+
+    res.json({
+      success: true,
+      message: "SSL 证书更新成功",
+    })
+  } catch (err) {
+    console.error("更新 SSL 证书错误:", err)
+    res.status(500).json({
+      success: false,
+      message: err.message || "更新 SSL 证书失败",
+    })
+  }
+}
+
 // 导出所有函数
 module.exports = {
   addDomain,
@@ -418,4 +532,6 @@ module.exports = {
   deleteDomain,
   recheckDomain,
   getAllUsersDomains,
+  getDomainSSLStatus,
+  renewSSLCertificate,
 }

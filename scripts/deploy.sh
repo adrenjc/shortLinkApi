@@ -43,6 +43,54 @@ else
     echo "Node.js 已安装，版本: $(node -v)"
 fi
 
+# 检查并安装 Nginx Lua 模块
+echo "正在检查 Nginx Lua 模块..."
+if ! dpkg -l | grep -q "nginx-extras"; then
+    echo "正在安装 Nginx Lua 模块和相关依赖..."
+    sudo apt-get install -y nginx-extras lua5.1 liblua5.1-0-dev luarocks
+    
+    # 安装 lua-resty-core
+    if ! luarocks list | grep -q "lua-resty-core"; then
+        echo "正在安装 lua-resty-core..."
+        sudo luarocks install lua-resty-core
+    fi
+    
+    # 创建并配置 SSL 证书目录
+    echo "正在配置 SSL 证书目录..."
+    sudo mkdir -p /etc/nginx/ssl/domains
+    sudo chown -R www-data:www-data /etc/nginx/ssl/domains
+    sudo chmod -R 750 /etc/nginx/ssl/domains
+    
+    # 如果应用不是以 root 运行，需要将应用用户添加到 www-data 组
+    sudo usermod -a -G www-data $USER
+    
+    # 重启 Nginx 以应用更改
+    echo "重启 Nginx 服务..."
+    sudo systemctl restart nginx
+else
+    echo "Nginx Lua 模块已安装"
+fi
+
+# 检查并安装 acme.sh
+echo "正在检查 acme.sh..."
+if [ ! -f "/root/.acme.sh/acme.sh" ]; then
+    echo "正在安装 acme.sh..."
+    # 检查是否设置了 ACME_EMAIL 环境变量
+    if [ -z "$ACME_EMAIL" ]; then
+        read -p "请输入用于 Let's Encrypt 的邮箱地址: " email
+        export ACME_EMAIL=$email
+    fi
+    
+    curl https://get.acme.sh | sh -s email=$ACME_EMAIL
+    
+    # 设置默认 CA
+    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+    
+    echo "acme.sh 安装完成"
+else
+    echo "acme.sh 已安装"
+fi
+
 # 检查并安装 PM2
 if ! command_exists pm2; then
     echo "正在安装 PM2..."
@@ -340,4 +388,36 @@ sudo systemctl status nginx --no-pager | grep "Active:"
 echo "防火墙状态:"
 sudo ufw status | grep "Status:"
 echo "PM2 进程状态:"
-pm2 list | grep "shortlink-backend" 
+pm2 list | grep "shortlink-backend"
+
+# 验证 SSL 相关组件
+echo -e "\nSSL 组件状态："
+echo "-------------------"
+echo "Nginx Lua 模块:"
+if nginx -V 2>&1 | grep -q "lua"; then
+    echo "✓ Lua 模块已安装"
+else
+    echo "✗ Lua 模块未安装或未正确配置"
+fi
+
+echo "acme.sh:"
+if [ -f "/root/.acme.sh/acme.sh" ]; then
+    echo "✓ acme.sh 已安装"
+    echo "版本: $(/root/.acme.sh/acme.sh --version 2>&1 | head -n 1)"
+else
+    echo "✗ acme.sh 未安装或未正确配置"
+fi
+
+echo "SSL 证书目录:"
+if [ -d "/etc/nginx/ssl/domains" ]; then
+    echo "✓ SSL 证书目录已创建"
+    ls -l /etc/nginx/ssl/domains
+else
+    echo "✗ SSL 证书目录未创建"
+fi
+
+echo "权限配置:"
+echo "SSL 目录权限: $(stat -c '%A %U:%G' /etc/nginx/ssl/domains)"
+echo "当前用户组: $(groups)"
+
+echo -e "\n部署完成！请检查以上状态确保所有组件都正确安装和配置。" 
