@@ -27,9 +27,9 @@ class SSLService {
       // 创建证书目录
       await execAsync(`sudo mkdir -p ${this.sslDir}/${domain}`)
 
-      // 申请证书时添加 --debug 参数
+      // 添加 --force 参数强制重新申请
       const { stdout, stderr } = await execAsync(
-        `sudo /root/.acme.sh/acme.sh --issue -d ${domain} -w /var/www/html --debug`
+        `sudo /root/.acme.sh/acme.sh --issue -d ${domain} -w /var/www/html --force --debug`
       )
       console.log("证书申请输出:", stdout)
       if (stderr) console.error("证书申请错误:", stderr)
