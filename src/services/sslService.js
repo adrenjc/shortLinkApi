@@ -22,13 +22,17 @@ class SSLService {
 
   async requestCertificate(domain) {
     try {
+      console.log(`开始为 ${domain} 申请证书...`)
+
       // 创建证书目录
       await execAsync(`sudo mkdir -p ${this.sslDir}/${domain}`)
 
-      // 申请证书
-      await execAsync(
-        `sudo /root/.acme.sh/acme.sh --issue -d ${domain} -w /var/www/html`
+      // 申请证书时添加 --debug 参数
+      const { stdout, stderr } = await execAsync(
+        `sudo /root/.acme.sh/acme.sh --issue -d ${domain} -w /var/www/html --debug`
       )
+      console.log("证书申请输出:", stdout)
+      if (stderr) console.error("证书申请错误:", stderr)
 
       // 安装证书
       await execAsync(`
@@ -38,15 +42,21 @@ class SSLService {
         --reloadcmd "systemctl reload nginx"
       `)
 
-      // 生成 nginx 配置
+      // 修改 nginx 配置模板
       const nginxConfig = `
 # SSL configuration for ${domain}
-if ($ssl_server_name = "${domain}") {
+server {
+    listen 443 ssl;
+    server_name ${domain};
+    
     ssl_certificate ${this.sslDir}/${domain}/fullchain.pem;
     ssl_certificate_key ${this.sslDir}/${domain}/key.pem;
+
+    # 其他配置继承自主配置
+    include /etc/nginx/ssl/domains/common.conf;
 }
 `
-
+      // 写入配置文件
       await execAsync(
         `sudo tee ${this.sslDir}/${domain}.conf > /dev/null << 'EOL'\n${nginxConfig}\nEOL`
       )
