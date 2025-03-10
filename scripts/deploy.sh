@@ -54,8 +54,36 @@ sudo apt-get clean
 
 # 添加 OpenResty 源
 echo "添加 OpenResty 软件源..."
-wget -O - https://openresty.org/package/pubkey.gpg | sudo apt-key add -
-echo "deb http://openresty.org/package/ubuntu $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/openresty.list
+sudo apt-get -y install --no-install-recommends wget gnupg ca-certificates
+
+# 检测系统版本
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$ID
+    VERSION_CODENAME=$VERSION_CODENAME
+else
+    echo "无法检测操作系统版本"
+    exit 1
+fi
+
+# 导入 GPG 密钥
+wget -O - https://openresty.org/package/pubkey.gpg | sudo gpg --dearmor -o /usr/share/keyrings/openresty.gpg
+
+# 根据系统添加对应的软件源
+if [ "$OS" = "debian" ]; then
+    echo "检测到 Debian 系统，添加 Debian 软件源..."
+    echo "deb [signed-by=/usr/share/keyrings/openresty.gpg] http://openresty.org/package/debian $VERSION_CODENAME openresty" | \
+        sudo tee /etc/apt/sources.list.d/openresty.list
+elif [ "$OS" = "ubuntu" ]; then
+    echo "检测到 Ubuntu 系统，添加 Ubuntu 软件源..."
+    echo "deb [signed-by=/usr/share/keyrings/openresty.gpg] http://openresty.org/package/ubuntu $VERSION_CODENAME main" | \
+        sudo tee /etc/apt/sources.list.d/openresty.list
+else
+    echo "不支持的操作系统: $OS"
+    exit 1
+fi
+
+# 更新软件包列表
 sudo apt-get update
 
 # 安装 OpenResty 和相关依赖
