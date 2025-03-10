@@ -10,6 +10,7 @@ const path = require("path")
 const { exec } = require("child_process")
 const util = require("util")
 const execAsync = util.promisify(exec)
+const { delAsync } = require("../utils/redisUtils")
 
 // 添加新域名
 const addDomain = async (req, res) => {
@@ -315,7 +316,19 @@ const deleteDomain = async (req, res) => {
       })
     }
 
-    // 2. 删除相关的短链接
+    // 2. 获取并删除相关的短链接
+    const links = await Link.find({ domain: domainDoc.domain })
+
+    // 删除短链接相关的 Redis 缓存
+    for (const link of links) {
+      try {
+        await delAsync(`shortlink:${link.shortKey}`)
+      } catch (error) {
+        console.error(`清除短链接缓存失败: ${link.shortKey}`, error)
+      }
+    }
+
+    // 删除数据库中的短链接
     await Link.deleteMany({ domain: domainDoc.domain })
 
     // 3. 删除 nginx 配置和证书文件
