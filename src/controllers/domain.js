@@ -10,7 +10,7 @@ const path = require("path")
 const { exec } = require("child_process")
 const util = require("util")
 const execAsync = util.promisify(exec)
-const { delAsync } = require("../utils/redisUtils")
+const { delAsync } = require("../config/redis")
 
 // 添加新域名
 const addDomain = async (req, res) => {
