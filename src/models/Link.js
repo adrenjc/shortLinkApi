@@ -14,6 +14,10 @@ const linkSchema = new mongoose.Schema(
       required: true,
       ref: "User",
     },
+    domain: {
+      type: String,
+      required: true,
+    },
   },
   { timestamps: true } // 启用时间戳
 )
@@ -24,6 +28,9 @@ linkSchema.index({ shortKey: 1, customDomain: 1 }, { unique: true })
 // 添加必要的索引
 linkSchema.index({ createdBy: 1 })
 linkSchema.index({ createdAt: -1 })
+
+// 添加索引以提高查询性能
+linkSchema.index({ domain: 1 })
 
 const Link = mongoose.model("Link", linkSchema)
 

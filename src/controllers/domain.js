@@ -7,6 +7,9 @@ const { ACTION_TYPES, RESOURCE_TYPES } = require("../constants/auditLogTypes")
 const sslService = require("../services/sslService")
 const fs = require("fs").promises
 const path = require("path")
+const { exec } = require("child_process")
+const util = require("util")
+const execAsync = util.promisify(exec)
 
 // 添加新域名
 const addDomain = async (req, res) => {
@@ -299,77 +302,45 @@ const getDomains = async (req, res) => {
 
 // 删除域名
 const deleteDomain = async (req, res) => {
-  const { domain } = req.params
-  let session = null
-
   try {
-    session = await Domain.startSession()
+    const { id } = req.params
 
-    const result = await session.withTransaction(async () => {
-      // 只移除 readPreference，保留 session
-      const domainDoc = await Domain.findOne({ domain }).session(session)
-
-      if (!domainDoc) {
-        throw new Error("域名未找到")
-      }
-
-      // 删除 SSL 证书文件（如果存在）
-      if (domainDoc.sslCertificate?.certPath) {
-        try {
-          await fs.unlink(domainDoc.sslCertificate.certPath)
-          await fs.unlink(domainDoc.sslCertificate.keyPath)
-          await fs.unlink(
-            path.join(
-              path.dirname(domainDoc.sslCertificate.certPath),
-              "fullchain.pem"
-            )
-          )
-        } catch (error) {
-          console.error(
-            `Error deleting SSL certificate files for ${domain}:`,
-            error
-          )
-        }
-      }
-
-      // 在事务中删除域名
-      await Domain.deleteOne({ domain }).session(session)
-
-      // 在事务中删除相关短链接
-      await Link.deleteMany({
-        customDomain: domain,
-      }).session(session)
-
-      // 在事务中添加审计日志
-      await createAuditLog({
-        userId: req.user.id,
-        action: ACTION_TYPES.DELETE_DOMAIN,
-        resourceType: RESOURCE_TYPES.DOMAIN,
-        resourceId: domainDoc._id,
-        description: `删除域名及相关短链: ${domain}`,
-        metadata: { domain },
-        req,
-        status: "SUCCESS",
-      })
-
-      return domainDoc
-    })
-
-    res.json({
-      success: true,
-      message: "域名及相关短链删除成功",
-      data: result,
-    })
-  } catch (err) {
-    console.error("删除域名错误:", err)
-    res.status(500).json({
-      success: false,
-      message: err.message || "删除域名失败",
-    })
-  } finally {
-    if (session) {
-      await session.endSession()
+    // 1. 获取域名信息
+    const domain = await Domain.findById(id)
+    if (!domain) {
+      return res.status(404).json({ message: "Domain not found" })
     }
+
+    // 2. 删除相关的短链接
+    await Link.deleteMany({ domain: domain.domain })
+
+    // 3. 删除 nginx 配置和证书文件
+    const domainName = domain.domain
+    try {
+      // 删除 nginx 配置
+      await execAsync(`sudo rm -f /etc/nginx/ssl/domains/${domainName}.conf`)
+
+      // 删除证书目录
+      await execAsync(`sudo rm -rf /etc/nginx/ssl/domains/${domainName}`)
+
+      // 删除 acme.sh 中的证书
+      await execAsync(
+        `sudo /root/.acme.sh/acme.sh --remove -d ${domainName} --ecc`
+      )
+
+      // 重新加载 nginx
+      await execAsync("sudo systemctl reload nginx")
+    } catch (error) {
+      console.error("Error cleaning up domain files:", error)
+    }
+
+    // 4. 删除数据库中的域名记录
+    await Domain.findByIdAndDelete(id)
+
+    res.json({ message: "Domain deleted successfully" })
+  } catch (error) {
+    console.error("Error deleting domain:", error)
+    res.status(500).json({ message: "Error deleting domain" })
   }
 }
 

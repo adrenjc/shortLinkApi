@@ -46,13 +46,19 @@ class SSLService {
       const nginxConfig = `
 # SSL configuration for ${domain}
 server {
+    listen 80;
+    server_name ${domain};
+    include /etc/nginx/ssl/domains/common.conf;
+}
+
+server {
     listen 443 ssl;
     server_name ${domain};
     
     ssl_certificate ${this.sslDir}/${domain}/fullchain.pem;
     ssl_certificate_key ${this.sslDir}/${domain}/key.pem;
 
-    # 其他配置继承自主配置
+    # 引入通用配置
     include /etc/nginx/ssl/domains/common.conf;
 }
 `
