@@ -43,142 +43,100 @@ else
     echo "Node.js 已安装，版本: $(node -v)"
 fi
 
-# 检查并安装 Nginx Lua 模块
-echo "正在检查 Nginx Lua 模块..."
+# 检查并安装 Nginx
+echo "正在检查 Nginx..."
 
-# 完全卸载现有的 nginx 相关包
-echo "移除现有的 nginx 相关包..."
-sudo apt-get remove -y nginx nginx-common nginx-full nginx-core nginx-extras || true
+# 完全卸载现有的 nginx 和 openresty 相关包
+echo "移除现有的 nginx 和 openresty 相关包..."
+sudo apt-get remove -y nginx nginx-common nginx-full nginx-core nginx-extras openresty openresty-resty openresty-opm || true
 sudo apt-get autoremove -y
 sudo apt-get clean
 
-# 添加 OpenResty 源
-echo "添加 OpenResty 软件源..."
-sudo apt-get -y install --no-install-recommends wget gnupg ca-certificates
+# 清理所有旧的 OpenResty 源配置
+echo "清理旧的 OpenResty 源配置..."
+sudo rm -f /etc/apt/sources.list.d/openresty.list
+sudo rm -f /etc/apt/sources.list.d/openresty.list.save
+sudo rm -f /usr/share/keyrings/openresty.gpg
 
-# 检测系统版本
-if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    OS=$ID
-    VERSION_CODENAME=$VERSION_CODENAME
-else
-    echo "无法检测操作系统版本"
-    exit 1
-fi
-
-# 导入 GPG 密钥
-wget -O - https://openresty.org/package/pubkey.gpg | sudo gpg --dearmor -o /usr/share/keyrings/openresty.gpg
-
-# 根据系统添加对应的软件源
-if [ "$OS" = "debian" ]; then
-    echo "检测到 Debian 系统，添加 Debian 软件源..."
-    echo "deb [signed-by=/usr/share/keyrings/openresty.gpg] http://openresty.org/package/debian $VERSION_CODENAME openresty" | \
-        sudo tee /etc/apt/sources.list.d/openresty.list
-elif [ "$OS" = "ubuntu" ]; then
-    echo "检测到 Ubuntu 系统，添加 Ubuntu 软件源..."
-    echo "deb [signed-by=/usr/share/keyrings/openresty.gpg] http://openresty.org/package/ubuntu $VERSION_CODENAME main" | \
-        sudo tee /etc/apt/sources.list.d/openresty.list
-else
-    echo "不支持的操作系统: $OS"
-    exit 1
-fi
-
-# 更新软件包列表
-sudo apt-get update
-
-# 安装 OpenResty 和相关依赖
-echo "安装 OpenResty 和相关依赖..."
-sudo apt-get install -y \
-    openresty \
-    openresty-resty \
-    openresty-opm \
-    lua5.1 \
-    liblua5.1-0-dev \
-    luarocks
-
-# 配置 OpenResty
-echo "配置 OpenResty..."
-sudo mkdir -p /etc/openresty/conf.d
-sudo tee /etc/openresty/conf.d/lua-module.conf > /dev/null << EOL
-load_module modules/ngx_http_lua_module.so;
-EOL
-
-# 安装 lua-resty 相关模块
-echo "安装 Lua 依赖模块..."
-sudo luarocks install lua-resty-lrucache
-sudo luarocks install lua-resty-core
-sudo luarocks install lua-resty-openssl
-
-# 创建并配置 SSL 证书目录
-echo "配置 SSL 证书目录..."
+# 在安装 nginx 之前创建证书目录和默认证书
+echo "创建 SSL 证书目录和默认证书..."
 sudo mkdir -p /etc/nginx/ssl/domains
-sudo chown -R www-data:www-data /etc/nginx/ssl/domains
-sudo chmod -R 750 /etc/nginx/ssl/domains
+sudo chown -R www-data:www-data /etc/nginx/ssl
+sudo chmod -R 750 /etc/nginx/ssl
+
+# 创建默认自签名证书
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout /etc/nginx/ssl/default.key \
+    -out /etc/nginx/ssl/default.pem \
+    -subj "/CN=default.local" \
+    -addext "subjectAltName = DNS:default.local"
+
+# 然后再安装 nginx
+echo "安装标准 Nginx..."
+sudo apt-get update
+sudo apt-get install -y nginx
 
 # 将应用用户添加到 www-data 组
 sudo usermod -a -G www-data $USER
 
-# 验证 OpenResty 配置
-echo "验证 OpenResty 配置..."
-sudo openresty -t
+# 验证 Nginx 配置
+echo "验证 Nginx 配置..."
+sudo nginx -t
 
 if [ $? -eq 0 ]; then
-    echo "OpenResty 配置验证成功，正在重启服务..."
-    sudo systemctl restart openresty
+    echo "Nginx 配置验证成功，正在重启服务..."
+    sudo systemctl restart nginx
     
-    # 检查 OpenResty 是否成功启动
-    if ! systemctl is-active --quiet openresty; then
-        echo "OpenResty 启动失败，查看错误日志..."
-        sudo journalctl -xeu openresty.service
-        sudo systemctl status openresty.service
+    # 检查 Nginx 是否成功启动
+    if ! systemctl is-active --quiet nginx; then
+        echo "Nginx 启动失败，查看错误日志..."
+        sudo journalctl -xeu nginx.service
+        sudo systemctl status nginx.service
         exit 1
     else
-        echo "OpenResty 重启成功"
+        echo "Nginx 重启成功"
     fi
 else
-    echo "OpenResty 配置验证失败，请检查配置文件"
+    echo "Nginx 配置验证失败，请检查配置文件"
     exit 1
 fi
-
-# 验证 Lua 模块安装
-echo "验证 Lua 模块安装..."
-if openresty -V 2>&1 | grep -q "lua"; then
-    echo "✓ Lua 模块已正确安装"
-else
-    echo "✗ Lua 模块未正确安装，请检查安装过程"
-    # 显示详细的 OpenResty 编译信息
-    echo "OpenResty 编译信息:"
-    openresty -V
-    exit 1
-fi
-
-# 验证 lua-resty 模块
-echo "验证 lua-resty 模块..."
-for module in lua-resty-lrucache lua-resty-core lua-resty-openssl; do
-    if luarocks list | grep -q "$module"; then
-        echo "✓ $module 已安装"
-    else
-        echo "✗ $module 未安装"
-        exit 1
-    fi
-done
 
 # 检查并安装 acme.sh
 echo "正在检查 acme.sh..."
 if [ ! -f "/root/.acme.sh/acme.sh" ]; then
     echo "正在安装 acme.sh..."
+    
+    # 安装 cron
+    echo "安装 cron..."
+    sudo apt-get install -y cron
+    sudo systemctl enable cron
+    sudo systemctl start cron
+    
     # 检查是否设置了 ACME_EMAIL 环境变量
     if [ -z "$ACME_EMAIL" ]; then
         read -p "请输入用于 Let's Encrypt 的邮箱地址: " email
         export ACME_EMAIL=$email
     fi
     
+    # 使用 force 参数安装 acme.sh
+    echo "安装 acme.sh..."
     curl https://get.acme.sh | sh -s email=$ACME_EMAIL
     
-    # 设置默认 CA
-    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+    # 检查安装是否成功
+    if [ ! -f "/root/.acme.sh/acme.sh" ]; then
+        echo "尝试使用 force 参数重新安装..."
+        curl https://get.acme.sh | sh -s -- --install --force email=$ACME_EMAIL
+    fi
     
-    echo "acme.sh 安装完成"
+    # 再次检查安装
+    if [ -f "/root/.acme.sh/acme.sh" ]; then
+        # 设置默认 CA
+        /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+        echo "acme.sh 安装完成"
+    else
+        echo "acme.sh 安装失败，请检查错误信息"
+        exit 1
+    fi
 else
     echo "acme.sh 已安装"
 fi
@@ -476,7 +434,7 @@ sudo systemctl status mongod --no-pager | grep "Active:"
 echo "Redis 状态:"
 sudo systemctl status redis-server --no-pager | grep "Active:"
 echo "Nginx 状态:"
-sudo systemctl status openresty --no-pager | grep "Active:"
+sudo systemctl status nginx --no-pager | grep "Active:"
 echo "防火墙状态:"
 sudo ufw status | grep "Status:"
 echo "PM2 进程状态:"
@@ -485,12 +443,6 @@ pm2 list | grep "shortlink-backend"
 # 验证 SSL 相关组件
 echo -e "\nSSL 组件状态："
 echo "-------------------"
-echo "Nginx Lua 模块:"
-if openresty -V 2>&1 | grep -q "lua"; then
-    echo "✓ Lua 模块已安装"
-else
-    echo "✗ Lua 模块未安装或未正确配置"
-fi
 
 echo "acme.sh:"
 if [ -f "/root/.acme.sh/acme.sh" ]; then

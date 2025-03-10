@@ -1,158 +1,106 @@
-const { spawn } = require("child_process")
-const path = require("path")
+const { exec } = require("child_process")
+const util = require("util")
+const execAsync = util.promisify(exec)
 const fs = require("fs").promises
+const path = require("path")
 const Domain = require("../models/Domain")
 const { createAuditLog } = require("../controllers/auditLog")
 const { ACTION_TYPES, RESOURCE_TYPES } = require("../constants/auditLogTypes")
 
 class SSLService {
   constructor() {
-    this.acmePath = "/root/.acme.sh/acme.sh" // acme.sh 安装路径
-    this.certsDir =
-      process.env.NODE_ENV === "production"
-        ? "/etc/nginx/ssl/domains"
-        : path.join(process.cwd(), "certs") // 证书存储目录
+    this.sslDir = "/etc/nginx/ssl/domains"
   }
 
   async initialize() {
-    // 确保证书目录存在
-    await fs.mkdir(this.certsDir, { recursive: true })
-
-    // 在生产环境下设置目录权限
-    if (process.env.NODE_ENV === "production") {
-      try {
-        // 设置目录权限，确保 nginx 和应用都能访问
-        await fs.chmod(this.certsDir, 0o750)
-        // 如果需要，也可以更改所有权
-        // 注意：这需要应用以 root 权限运行，或使用 sudo
-        // await fs.chown(this.certsDir, 'www-data', 'www-data')
-      } catch (error) {
-        console.warn(
-          "Warning: Could not set permissions on certs directory:",
-          error
-        )
-      }
+    try {
+      await fs.mkdir(this.sslDir, { recursive: true })
+    } catch (error) {
+      console.error("Failed to create SSL directory:", error)
     }
   }
 
-  async installAcme() {
-    if (!process.env.ACME_EMAIL) {
-      throw new Error("ACME_EMAIL environment variable is not set")
+  async requestCertificate(domain) {
+    try {
+      // 创建证书目录
+      await execAsync(`sudo mkdir -p ${this.sslDir}/${domain}`)
+
+      // 申请证书
+      await execAsync(
+        `sudo /root/.acme.sh/acme.sh --issue -d ${domain} -w /var/www/html`
+      )
+
+      // 安装证书
+      await execAsync(`
+        sudo /root/.acme.sh/acme.sh --install-cert -d ${domain} \
+        --key-file ${this.sslDir}/${domain}/key.pem \
+        --fullchain-file ${this.sslDir}/${domain}/fullchain.pem \
+        --reloadcmd "systemctl reload nginx"
+      `)
+
+      // 生成 nginx 配置
+      const nginxConfig = `
+# SSL configuration for ${domain}
+if ($ssl_server_name = "${domain}") {
+    ssl_certificate ${this.sslDir}/${domain}/fullchain.pem;
+    ssl_certificate_key ${this.sslDir}/${domain}/key.pem;
+}
+`
+
+      await execAsync(
+        `sudo tee ${this.sslDir}/${domain}.conf > /dev/null << 'EOL'\n${nginxConfig}\nEOL`
+      )
+
+      // 重新加载 nginx
+      await execAsync("sudo systemctl reload nginx")
+
+      console.log(
+        `SSL certificate for ${domain} has been issued and installed successfully`
+      )
+      return true
+    } catch (error) {
+      console.error(`Error requesting SSL certificate for ${domain}:`, error)
+      return false
     }
-
-    return new Promise((resolve, reject) => {
-      const install = spawn("curl", [
-        "https://get.acme.sh",
-        "|",
-        "sh",
-        "-s",
-        `email=${process.env.ACME_EMAIL}`,
-      ])
-
-      install.stdout.on("data", (data) => {
-        console.log(`acme.sh installation: ${data}`)
-      })
-
-      install.stderr.on("data", (data) => {
-        console.error(`acme.sh installation error: ${data}`)
-      })
-
-      install.on("close", (code) => {
-        if (code === 0) {
-          resolve()
-        } else {
-          reject(new Error(`acme.sh installation failed with code ${code}`))
-        }
-      })
-    })
   }
 
-  async issueCertificate(domain, userId) {
-    const certPath = path.join(this.certsDir, domain, "cert.pem")
-    const keyPath = path.join(this.certsDir, domain, "key.pem")
+  async setupAutoRenewal() {
+    try {
+      // 配置自动续期
+      await execAsync(`
+        sudo /root/.acme.sh/acme.sh --install-cronjob
+      `)
+      console.log("SSL auto-renewal configured successfully")
+    } catch (error) {
+      console.error("Failed to setup SSL auto-renewal:", error)
+    }
+  }
 
-    return new Promise(async (resolve, reject) => {
-      try {
-        // 创建域名证书目录
-        await fs.mkdir(path.join(this.certsDir, domain), { recursive: true })
+  async checkCertificateStatus(domain) {
+    const domainDoc = await Domain.findOne({ domain })
+    if (!domainDoc?.sslCertificate?.expiresAt) {
+      return "pending"
+    }
 
-        const issue = spawn(this.acmePath, [
-          "--issue",
-          "-d",
-          domain,
-          "--standalone",
-          "--server",
-          "letsencrypt",
-          "--cert-file",
-          certPath,
-          "--key-file",
-          keyPath,
-          "--fullchain-file",
-          path.join(this.certsDir, domain, "fullchain.pem"),
-        ])
+    const now = new Date()
+    const expiresAt = new Date(domainDoc.sslCertificate.expiresAt)
+    const daysUntilExpiry = Math.ceil((expiresAt - now) / (1000 * 60 * 60 * 24))
 
-        issue.stdout.on("data", (data) => {
-          console.log(`Certificate issuance for ${domain}: ${data}`)
-        })
-
-        issue.stderr.on("data", (data) => {
-          console.error(`Certificate issuance error for ${domain}: ${data}`)
-        })
-
-        issue.on("close", async (code) => {
-          if (code === 0) {
-            // 更新数据库中的证书信息
-            const expiresAt = new Date()
-            expiresAt.setDate(expiresAt.getDate() + 90) // Let's Encrypt 证书有效期为 90 天
-
-            await Domain.findOneAndUpdate(
-              { domain },
-              {
-                "sslCertificate.certPath": certPath,
-                "sslCertificate.keyPath": keyPath,
-                "sslCertificate.issuedAt": new Date(),
-                "sslCertificate.expiresAt": expiresAt,
-                "sslCertificate.status": "active",
-                "sslCertificate.lastRenewalAttempt": new Date(),
-                "sslCertificate.renewalError": null,
-              }
-            )
-
-            // 记录审计日志
-            await createAuditLog({
-              userId,
-              action: ACTION_TYPES.SSL_CERTIFICATE_ISSUED,
-              resourceType: RESOURCE_TYPES.DOMAIN,
-              description: `为域名 ${domain} 颁发了 SSL 证书`,
-              metadata: { domain, expiresAt },
-            })
-
-            resolve()
-          } else {
-            const error = new Error(
-              `Certificate issuance failed for ${domain} with code ${code}`
-            )
-            await Domain.findOneAndUpdate(
-              { domain },
-              {
-                "sslCertificate.status": "error",
-                "sslCertificate.lastRenewalAttempt": new Date(),
-                "sslCertificate.renewalError": error.message,
-              }
-            )
-            reject(error)
-          }
-        })
-      } catch (error) {
-        reject(error)
-      }
-    })
+    if (daysUntilExpiry <= 0) {
+      return "expired"
+    } else if (daysUntilExpiry <= 30) {
+      return "renewal-needed"
+    } else {
+      return "active"
+    }
   }
 
   async renewCertificate(domain, userId) {
     return new Promise(async (resolve, reject) => {
       try {
-        const renew = spawn(this.acmePath, ["--renew", "-d", domain, "--force"])
+        const renew = exec(
+          `sudo /root/.acme.sh/acme.sh --renew -d ${domain} --force`
+        )
 
         renew.stdout.on("data", (data) => {
           console.log(`Certificate renewal for ${domain}: ${data}`)
@@ -206,25 +154,6 @@ class SSLService {
         reject(error)
       }
     })
-  }
-
-  async checkCertificateStatus(domain) {
-    const domainDoc = await Domain.findOne({ domain })
-    if (!domainDoc?.sslCertificate?.expiresAt) {
-      return "pending"
-    }
-
-    const now = new Date()
-    const expiresAt = new Date(domainDoc.sslCertificate.expiresAt)
-    const daysUntilExpiry = Math.ceil((expiresAt - now) / (1000 * 60 * 60 * 24))
-
-    if (daysUntilExpiry <= 0) {
-      return "expired"
-    } else if (daysUntilExpiry <= 30) {
-      return "renewal-needed"
-    } else {
-      return "active"
-    }
   }
 
   async setupAutoRenewal() {

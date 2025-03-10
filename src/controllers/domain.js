@@ -75,89 +75,35 @@ const verifyDomain = async (req, res) => {
   const { domain } = req.params
 
   try {
-    const domainRecord = await Domain.findOne({
+    const domainDoc = await Domain.findOne({
       domain,
       userId: req.user.id,
     })
 
-    if (!domainRecord) {
+    if (!domainDoc) {
       return res.status(404).json({
         success: false,
         message: "域名未找到",
       })
     }
 
-    try {
-      // 查询域名的 TXT 记录
-      const records = await dns.resolveTxt(domain)
-      const verified = records.some((record) =>
-        record.some((string) => string === domainRecord.verificationCode)
-      )
-
-      if (verified) {
-        domainRecord.verified = true
-        await domainRecord.save()
-
-        // 域名验证成功后，自动申请 SSL 证书
-        try {
-          await sslService.issueCertificate(domain, req.user.id)
-        } catch (sslError) {
-          console.error("SSL certificate issuance failed:", sslError)
-          // 不阻止域名验证流程，但记录错误
-          await createAuditLog({
-            userId: req.user.id,
-            action: ACTION_TYPES.SSL_CERTIFICATE_ERROR,
-            resourceType: RESOURCE_TYPES.DOMAIN,
-            description: `SSL 证书申请失败: ${domain}`,
-            metadata: { domain, error: sslError.message },
-            req,
-            status: "FAILURE",
-          })
-        }
-
-        // 添加审计日志
-        await createAuditLog({
-          userId: req.user.id,
-          action: ACTION_TYPES.VERIFY_DOMAIN,
-          resourceType: RESOURCE_TYPES.DOMAIN,
-          resourceId: domainRecord._id,
-          description: `验证域名: ${domain}`,
-          metadata: { domain },
-          req,
-          status: "SUCCESS",
-        })
-
-        res.json({
-          success: true,
-          message: "域名验证成功",
-        })
-      } else {
-        res.status(400).json({
-          success: false,
-          message: "域名验证失败，请检查 DNS 记录",
-        })
+    // 验证成功后自动申请 SSL 证书
+    if (domainDoc.verified) {
+      const sslResult = await sslService.requestCertificate(domain)
+      if (!sslResult) {
+        console.warn(`SSL certificate request failed for ${domain}`)
       }
-    } catch (dnsError) {
-      res.status(400).json({
-        success: false,
-        message: "DNS 记录查询失败，请确保记录已正确添加",
-      })
     }
-  } catch (err) {
-    // 记录失败的审计日志
-    await createAuditLog({
-      userId: req.user.id,
-      action: ACTION_TYPES.VERIFY_DOMAIN,
-      resourceType: RESOURCE_TYPES.DOMAIN,
-      description: `验证域名失败: ${domain}`,
-      metadata: { domain, error: err.message },
-      req,
-      status: "FAILURE",
-      errorMessage: err.message,
+
+    res.json({
+      success: true,
+      data: domainDoc,
     })
+  } catch (err) {
+    console.error("域名验证错误:", err)
     res.status(500).json({
       success: false,
-      message: "验证过程出错",
+      message: err.message || "域名验证失败",
     })
   }
 }
