@@ -303,67 +303,57 @@ const deleteDomain = async (req, res) => {
   let session = null
 
   try {
-    // 开启事务会话
     session = await Domain.startSession()
 
-    // 开始事务
-    const result = await session.withTransaction(
-      async () => {
-        // 查找域名是否存在，使用 primary 读取首选项
-        const domainDoc = await Domain.findOne({ domain })
-          .session(session)
-          .readPreference("primary")
+    const result = await session.withTransaction(async () => {
+      // 只移除 readPreference，保留 session
+      const domainDoc = await Domain.findOne({ domain }).session(session)
 
-        if (!domainDoc) {
-          throw new Error("域名未找到")
-        }
-
-        // 删除 SSL 证书文件（如果存在）
-        if (domainDoc.sslCertificate?.certPath) {
-          try {
-            await fs.unlink(domainDoc.sslCertificate.certPath)
-            await fs.unlink(domainDoc.sslCertificate.keyPath)
-            await fs.unlink(
-              path.join(
-                path.dirname(domainDoc.sslCertificate.certPath),
-                "fullchain.pem"
-              )
-            )
-          } catch (error) {
-            console.error(
-              `Error deleting SSL certificate files for ${domain}:`,
-              error
-            )
-          }
-        }
-
-        // 在事务中删除域名
-        await Domain.deleteOne({ domain }).session(session)
-
-        // 在事务中删除相关短链接
-        await Link.deleteMany({
-          customDomain: domain,
-        }).session(session)
-
-        // 在事务中添加审计日志
-        await createAuditLog({
-          userId: req.user.id,
-          action: ACTION_TYPES.DELETE_DOMAIN,
-          resourceType: RESOURCE_TYPES.DOMAIN,
-          resourceId: domainDoc._id,
-          description: `删除域名及相关短链: ${domain}`,
-          metadata: { domain },
-          req,
-          status: "SUCCESS",
-        })
-
-        return domainDoc
-      },
-      {
-        // 设置事务选项，确保使用 primary 读取首选项
-        readPreference: "primary",
+      if (!domainDoc) {
+        throw new Error("域名未找到")
       }
-    )
+
+      // 删除 SSL 证书文件（如果存在）
+      if (domainDoc.sslCertificate?.certPath) {
+        try {
+          await fs.unlink(domainDoc.sslCertificate.certPath)
+          await fs.unlink(domainDoc.sslCertificate.keyPath)
+          await fs.unlink(
+            path.join(
+              path.dirname(domainDoc.sslCertificate.certPath),
+              "fullchain.pem"
+            )
+          )
+        } catch (error) {
+          console.error(
+            `Error deleting SSL certificate files for ${domain}:`,
+            error
+          )
+        }
+      }
+
+      // 在事务中删除域名
+      await Domain.deleteOne({ domain }).session(session)
+
+      // 在事务中删除相关短链接
+      await Link.deleteMany({
+        customDomain: domain,
+      }).session(session)
+
+      // 在事务中添加审计日志
+      await createAuditLog({
+        userId: req.user.id,
+        action: ACTION_TYPES.DELETE_DOMAIN,
+        resourceType: RESOURCE_TYPES.DOMAIN,
+        resourceId: domainDoc._id,
+        description: `删除域名及相关短链: ${domain}`,
+        metadata: { domain },
+        req,
+        status: "SUCCESS",
+      })
+
+      return domainDoc
+    })
 
     res.json({
       success: true,

@@ -44,6 +44,10 @@ const connectDB = async () => {
       // 监控和调试
 
       monitorCommands: true, // 监控数据库命令
+
+      // 事务必需的配置
+      retryWrites: true,
+      w: "majority",
     })
 
     console.log("MongoDB Connected")
