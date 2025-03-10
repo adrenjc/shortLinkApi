@@ -45,84 +45,82 @@ fi
 
 # 检查并安装 Nginx Lua 模块
 echo "正在检查 Nginx Lua 模块..."
-if ! dpkg -l | grep -q "nginx-extras"; then
-    echo "正在安装 Nginx Lua 模块和相关依赖..."
+
+# 完全卸载现有的 nginx 相关包
+echo "移除现有的 nginx 相关包..."
+sudo apt-get remove -y nginx nginx-common nginx-full nginx-core nginx-extras || true
+sudo apt-get autoremove -y
+sudo apt-get clean
+
+# 添加 OpenResty 源
+echo "添加 OpenResty 软件源..."
+wget -O - https://openresty.org/package/pubkey.gpg | sudo apt-key add -
+echo "deb http://openresty.org/package/ubuntu $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/openresty.list
+sudo apt-get update
+
+# 安装 OpenResty 和相关依赖
+echo "安装 OpenResty 和相关依赖..."
+sudo apt-get install -y \
+    openresty \
+    openresty-resty \
+    openresty-opm \
+    lua5.1 \
+    liblua5.1-0-dev \
+    luarocks
+
+# 配置 OpenResty
+echo "配置 OpenResty..."
+sudo mkdir -p /etc/openresty/conf.d
+sudo tee /etc/openresty/conf.d/lua-module.conf > /dev/null << EOL
+load_module modules/ngx_http_lua_module.so;
+EOL
+
+# 安装 lua-resty 相关模块
+echo "安装 Lua 依赖模块..."
+sudo luarocks install lua-resty-lrucache
+sudo luarocks install lua-resty-core
+sudo luarocks install lua-resty-openssl
+
+# 创建并配置 SSL 证书目录
+echo "配置 SSL 证书目录..."
+sudo mkdir -p /etc/nginx/ssl/domains
+sudo chown -R www-data:www-data /etc/nginx/ssl/domains
+sudo chmod -R 750 /etc/nginx/ssl/domains
+
+# 将应用用户添加到 www-data 组
+sudo usermod -a -G www-data $USER
+
+# 验证 OpenResty 配置
+echo "验证 OpenResty 配置..."
+sudo openresty -t
+
+if [ $? -eq 0 ]; then
+    echo "OpenResty 配置验证成功，正在重启服务..."
+    sudo systemctl restart openresty
     
-    # 移除现有的 nginx 包
-    echo "移除现有的 nginx 包..."
-    sudo apt-get remove -y nginx nginx-common nginx-full nginx-core || true
-    
-    # 添加 OpenResty 源
-    echo "添加 OpenResty 软件源..."
-    wget -O - https://openresty.org/package/pubkey.gpg | sudo apt-key add -
-    echo "deb http://openresty.org/package/ubuntu $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/openresty.list
-    sudo apt-get update
-    
-    # 安装必要的依赖
-    echo "安装必要的依赖..."
-    sudo apt-get install -y \
-        openresty \
-        openresty-resty \
-        openresty-opm \
-        nginx-extras \
-        lua5.1 \
-        liblua5.1-0-dev \
-        luarocks \
-        openresty-openssl-dev \
-        openresty-pcre-dev \
-        openresty-zlib-dev
-    
-    # 安装 lua-resty 相关模块
-    echo "安装 Lua 依赖模块..."
-    sudo luarocks install lua-resty-lrucache
-    sudo luarocks install lua-resty-core
-    sudo luarocks install lua-resty-openssl
-    
-    # 创建并配置 SSL 证书目录
-    echo "配置 SSL 证书目录..."
-    sudo mkdir -p /etc/nginx/ssl/domains
-    sudo chown -R www-data:www-data /etc/nginx/ssl/domains
-    sudo chmod -R 750 /etc/nginx/ssl/domains
-    
-    # 如果应用不是以 root 运行，需要将应用用户添加到 www-data 组
-    sudo usermod -a -G www-data $USER
-    
-    # 配置 Nginx 加载 Lua 模块
-    echo "配置 Nginx 加载 Lua 模块..."
-    sudo mkdir -p /etc/nginx/conf.d
-    echo 'load_module modules/ngx_http_lua_module.so;' | sudo tee /etc/nginx/conf.d/lua-module.conf
-    
-    # 验证 Nginx 配置
-    echo "验证 Nginx 配置..."
-    sudo nginx -t
-    
-    if [ $? -eq 0 ]; then
-        echo "Nginx 配置验证成功，正在重启服务..."
-        sudo systemctl restart nginx
-        
-        # 检查 Nginx 是否成功启动
-        if ! systemctl is-active --quiet nginx; then
-            echo "Nginx 启动失败，查看错误日志..."
-            sudo journalctl -xeu nginx.service
-            sudo systemctl status nginx.service
-            exit 1
-        else
-            echo "Nginx 重启成功"
-        fi
-    else
-        echo "Nginx 配置验证失败，请检查配置文件"
+    # 检查 OpenResty 是否成功启动
+    if ! systemctl is-active --quiet openresty; then
+        echo "OpenResty 启动失败，查看错误日志..."
+        sudo journalctl -xeu openresty.service
+        sudo systemctl status openresty.service
         exit 1
+    else
+        echo "OpenResty 重启成功"
     fi
 else
-    echo "Nginx Lua 模块已安装"
+    echo "OpenResty 配置验证失败，请检查配置文件"
+    exit 1
 fi
 
 # 验证 Lua 模块安装
 echo "验证 Lua 模块安装..."
-if nginx -V 2>&1 | grep -q "lua"; then
+if openresty -V 2>&1 | grep -q "lua"; then
     echo "✓ Lua 模块已正确安装"
 else
     echo "✗ Lua 模块未正确安装，请检查安装过程"
+    # 显示详细的 OpenResty 编译信息
+    echo "OpenResty 编译信息:"
+    openresty -V
     exit 1
 fi
 
@@ -450,7 +448,7 @@ sudo systemctl status mongod --no-pager | grep "Active:"
 echo "Redis 状态:"
 sudo systemctl status redis-server --no-pager | grep "Active:"
 echo "Nginx 状态:"
-sudo systemctl status nginx --no-pager | grep "Active:"
+sudo systemctl status openresty --no-pager | grep "Active:"
 echo "防火墙状态:"
 sudo ufw status | grep "Status:"
 echo "PM2 进程状态:"
@@ -460,7 +458,7 @@ pm2 list | grep "shortlink-backend"
 echo -e "\nSSL 组件状态："
 echo "-------------------"
 echo "Nginx Lua 模块:"
-if nginx -V 2>&1 | grep -q "lua"; then
+if openresty -V 2>&1 | grep -q "lua"; then
     echo "✓ Lua 模块已安装"
 else
     echo "✗ Lua 模块未安装或未正确配置"
