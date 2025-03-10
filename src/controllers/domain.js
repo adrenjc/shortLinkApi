@@ -303,19 +303,23 @@ const getDomains = async (req, res) => {
 // 删除域名
 const deleteDomain = async (req, res) => {
   try {
-    const { id } = req.params
+    const { domain } = req.params
 
     // 1. 获取域名信息
-    const domain = await Domain.findById(id)
-    if (!domain) {
-      return res.status(404).json({ message: "Domain not found" })
+    const domainDoc = await Domain.findOne({ domain })
+
+    if (!domainDoc) {
+      return res.status(404).json({
+        success: false,
+        message: "域名未找到",
+      })
     }
 
     // 2. 删除相关的短链接
-    await Link.deleteMany({ domain: domain.domain })
+    await Link.deleteMany({ domain: domainDoc.domain })
 
     // 3. 删除 nginx 配置和证书文件
-    const domainName = domain.domain
+    const domainName = domainDoc.domain
     try {
       // 删除 nginx 配置
       await execAsync(`sudo rm -f /etc/nginx/ssl/domains/${domainName}.conf`)
@@ -335,12 +339,30 @@ const deleteDomain = async (req, res) => {
     }
 
     // 4. 删除数据库中的域名记录
-    await Domain.findByIdAndDelete(id)
+    await Domain.findByIdAndDelete(domainDoc._id)
 
-    res.json({ message: "Domain deleted successfully" })
+    // 添加审计日志
+    await createAuditLog({
+      userId: req.user.id,
+      action: ACTION_TYPES.DELETE_DOMAIN,
+      resourceType: RESOURCE_TYPES.DOMAIN,
+      resourceId: domainDoc._id,
+      description: `删除域名: ${domainName}`,
+      metadata: { domain: domainName },
+      req,
+      status: "SUCCESS",
+    })
+
+    res.json({
+      success: true,
+      message: "域名删除成功",
+    })
   } catch (error) {
-    console.error("Error deleting domain:", error)
-    res.status(500).json({ message: "Error deleting domain" })
+    console.error("删除域名错误:", error)
+    res.status(500).json({
+      success: false,
+      message: "删除域名失败",
+    })
   }
 }
 
