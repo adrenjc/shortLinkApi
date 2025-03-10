@@ -34,6 +34,7 @@ const createShortLink = async (req, res) => {
         customDomain: customDomain || null,
         shortUrl: `${baseUrl}/r/${shortKey}`,
         createdBy: req.user.id,
+        domain: customDomain || currentDomain,
       })
       await newLink.save()
 
@@ -75,6 +76,7 @@ const createShortLink = async (req, res) => {
       customDomain: customDomain || null,
       shortUrl: `${baseUrl}/r/${shortKey}`,
       createdBy: req.user.id,
+      domain: customDomain || currentDomain,
     })
 
     await newLink.save()
