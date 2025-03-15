@@ -12,6 +12,8 @@ const util = require("util")
 const execAsync = util.promisify(exec)
 const { delAsync } = require("../config/redis")
 
+const isDev = process.env.NODE_ENV === "development"
+
 // 添加新域名
 const addDomain = async (req, res) => {
   const { domain } = req.body
@@ -105,21 +107,23 @@ const verifyDomain = async (req, res) => {
         // 域名验证成功后，自动申请 SSL 证书
         try {
           const sslResult = await sslService.requestCertificate(domain)
-          if (!sslResult) {
+          if (!sslResult && !isDev) {
             console.warn(`SSL certificate request failed for ${domain}`)
           }
         } catch (sslError) {
-          console.error("SSL certificate issuance failed:", sslError)
-          // 不阻止域名验证流程，但记录错误
-          await createAuditLog({
-            userId: req.user.id,
-            action: ACTION_TYPES.SSL_CERTIFICATE_ERROR,
-            resourceType: RESOURCE_TYPES.DOMAIN,
-            description: `SSL 证书申请失败: ${domain}`,
-            metadata: { domain, error: sslError.message },
-            req,
-            status: "FAILURE",
-          })
+          if (!isDev) {
+            console.error("SSL certificate issuance failed:", sslError)
+            // 不阻止域名验证流程，但记录错误
+            await createAuditLog({
+              userId: req.user.id,
+              action: ACTION_TYPES.SSL_CERTIFICATE_ERROR,
+              resourceType: RESOURCE_TYPES.DOMAIN,
+              description: `SSL 证书申请失败: ${domain}`,
+              metadata: { domain, error: sslError.message },
+              req,
+              status: "FAILURE",
+            })
+          }
         }
 
         // 添加审计日志
@@ -333,22 +337,28 @@ const deleteDomain = async (req, res) => {
 
     // 3. 删除 nginx 配置和证书文件
     const domainName = domainDoc.domain
-    try {
-      // 删除 nginx 配置
-      await execAsync(`sudo rm -f /etc/nginx/ssl/domains/${domainName}.conf`)
+    if (!process.env.SKIP_SSL_GENERATION) {
+      try {
+        // 删除 nginx 配置
+        await execAsync(`sudo rm -f /etc/nginx/ssl/domains/${domainName}.conf`)
 
-      // 删除证书目录
-      await execAsync(`sudo rm -rf /etc/nginx/ssl/domains/${domainName}`)
+        // 删除证书目录
+        await execAsync(`sudo rm -rf /etc/nginx/ssl/domains/${domainName}`)
 
-      // 删除 acme.sh 中的证书
-      await execAsync(
-        `sudo /root/.acme.sh/acme.sh --remove -d ${domainName} --ecc`
+        // 删除 acme.sh 中的证书
+        await execAsync(
+          `sudo /root/.acme.sh/acme.sh --remove -d ${domainName} --ecc`
+        )
+
+        // 重新加载 nginx
+        await execAsync("sudo systemctl reload nginx")
+      } catch (error) {
+        console.error("Error cleaning up domain files:", error)
+      }
+    } else {
+      console.log(
+        `开发环境：跳过删除域名 ${domainName} 的 SSL 证书和 Nginx 配置`
       )
-
-      // 重新加载 nginx
-      await execAsync("sudo systemctl reload nginx")
-    } catch (error) {
-      console.error("Error cleaning up domain files:", error)
     }
 
     // 4. 删除数据库中的域名记录
@@ -420,6 +430,7 @@ const getAllUsersDomains = async (req, res) => {
           verificationCode: 1,
           createdAt: 1,
           updatedAt: 1,
+          sslCertificate: 1,
           "user.username": 1,
           "user.email": 1,
           "user._id": 1,
@@ -436,13 +447,41 @@ const getAllUsersDomains = async (req, res) => {
       },
     ])
 
+    // 计算每个域名的 SSL 证书剩余时间
+    const domainsWithSSLInfo = domains.map((domain) => {
+      const sslInfo = {
+        ...domain,
+        sslRemainingDays: null,
+        sslStatus: "pending",
+      }
+
+      if (domain.sslCertificate?.expiresAt) {
+        const now = new Date()
+        const expiresAt = new Date(domain.sslCertificate.expiresAt)
+        const remainingDays = Math.ceil(
+          (expiresAt - now) / (1000 * 60 * 60 * 24)
+        )
+
+        sslInfo.sslRemainingDays = remainingDays
+        if (remainingDays <= 0) {
+          sslInfo.sslStatus = "expired"
+        } else if (remainingDays <= 30) {
+          sslInfo.sslStatus = "renewal-needed"
+        } else {
+          sslInfo.sslStatus = "active"
+        }
+      }
+
+      return sslInfo
+    })
+
     // 获取总数量
     const total = await Domain.countDocuments(query)
 
     // 返回符合 ProTable 的数据格式
     res.json({
       success: true,
-      data: domains,
+      data: domainsWithSSLInfo,
       total: total,
     })
   } catch (err) {

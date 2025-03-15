@@ -10,9 +10,15 @@ const { ACTION_TYPES, RESOURCE_TYPES } = require("../constants/auditLogTypes")
 class SSLService {
   constructor() {
     this.sslDir = "/etc/nginx/ssl/domains"
+    this.skipSSLGeneration = process.env.NODE_ENV === "development"
   }
 
   async initialize() {
+    if (this.skipSSLGeneration) {
+      console.log("开发环境：跳过 SSL 服务初始化")
+      return
+    }
+
     try {
       await fs.mkdir(this.sslDir, { recursive: true })
     } catch (error) {
@@ -21,6 +27,25 @@ class SSLService {
   }
 
   async requestCertificate(domain) {
+    if (this.skipSSLGeneration) {
+      console.log(`开发环境：跳过为 ${domain} 生成 SSL 证书`)
+      // 在开发环境中，我们仍然更新域名的 SSL 证书状态
+      const expiresAt = new Date()
+      expiresAt.setDate(expiresAt.getDate() + 90) // 设置90天的模拟过期时间
+
+      await Domain.findOneAndUpdate(
+        { domain },
+        {
+          "sslCertificate.issuedAt": new Date(),
+          "sslCertificate.expiresAt": expiresAt,
+          "sslCertificate.status": "active",
+          "sslCertificate.lastRenewalAttempt": new Date(),
+          "sslCertificate.renewalError": null,
+        }
+      )
+      return true
+    }
+
     try {
       console.log(`开始为 ${domain} 申请证书...`)
 
@@ -81,6 +106,11 @@ server {
   }
 
   async setupAutoRenewal() {
+    if (this.skipSSLGeneration) {
+      console.log("开发环境：跳过设置 SSL 自动续期")
+      return
+    }
+
     try {
       // 配置自动续期
       await execAsync(`
@@ -90,6 +120,38 @@ server {
     } catch (error) {
       console.error("Failed to setup SSL auto-renewal:", error)
     }
+
+    // 每天检查一次证书状态
+    setInterval(async () => {
+      if (this.skipSSLGeneration) {
+        return
+      }
+
+      try {
+        const domains = await Domain.find({
+          "sslCertificate.status": "active",
+        })
+
+        for (const domain of domains) {
+          const status = await this.checkCertificateStatus(domain.domain)
+          if (status === "renewal-needed") {
+            try {
+              await this.renewCertificate(domain.domain, domain.userId)
+              console.log(
+                `Successfully renewed certificate for ${domain.domain}`
+              )
+            } catch (error) {
+              console.error(
+                `Failed to renew certificate for ${domain.domain}:`,
+                error
+              )
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error in certificate auto-renewal:", error)
+      }
+    }, 24 * 60 * 60 * 1000) // 24 小时
   }
 
   async checkCertificateStatus(domain) {
@@ -112,6 +174,34 @@ server {
   }
 
   async renewCertificate(domain, userId) {
+    if (this.skipSSLGeneration) {
+      console.log(`开发环境：跳过为 ${domain} 更新 SSL 证书`)
+      const expiresAt = new Date()
+      expiresAt.setDate(expiresAt.getDate() + 90)
+
+      await Domain.findOneAndUpdate(
+        { domain },
+        {
+          "sslCertificate.issuedAt": new Date(),
+          "sslCertificate.expiresAt": expiresAt,
+          "sslCertificate.status": "active",
+          "sslCertificate.lastRenewalAttempt": new Date(),
+          "sslCertificate.renewalError": null,
+        }
+      )
+
+      // 记录审计日志
+      await createAuditLog({
+        userId,
+        action: ACTION_TYPES.SSL_CERTIFICATE_RENEWED,
+        resourceType: RESOURCE_TYPES.DOMAIN,
+        description: `开发环境：模拟更新域名 ${domain} 的 SSL 证书`,
+        metadata: { domain, expiresAt },
+      })
+
+      return Promise.resolve()
+    }
+
     return new Promise(async (resolve, reject) => {
       try {
         const renew = exec(
@@ -170,36 +260,6 @@ server {
         reject(error)
       }
     })
-  }
-
-  async setupAutoRenewal() {
-    // 每天检查一次证书状态
-    setInterval(async () => {
-      try {
-        const domains = await Domain.find({
-          "sslCertificate.status": "active",
-        })
-
-        for (const domain of domains) {
-          const status = await this.checkCertificateStatus(domain.domain)
-          if (status === "renewal-needed") {
-            try {
-              await this.renewCertificate(domain.domain, domain.userId)
-              console.log(
-                `Successfully renewed certificate for ${domain.domain}`
-              )
-            } catch (error) {
-              console.error(
-                `Failed to renew certificate for ${domain.domain}:`,
-                error
-              )
-            }
-          }
-        }
-      } catch (error) {
-        console.error("Error in certificate auto-renewal:", error)
-      }
-    }, 24 * 60 * 60 * 1000) // 24 小时
   }
 }
 

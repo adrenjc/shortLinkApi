@@ -8,7 +8,7 @@ const { ACTION_TYPES, RESOURCE_TYPES } = require("../constants/auditLogTypes")
 // 用户注册
 exports.register = async (req, res) => {
   try {
-    const { username, password } = req.body
+    const { username, password, roles } = req.body
 
     // 检查用户名是否存在
     let user = await User.findOne({ username })
@@ -16,19 +16,37 @@ exports.register = async (req, res) => {
       return res.status(400).json({ success: false, message: "用户已经存在" })
     }
 
-    // 获取普通用户角色
-    const normalRole = await Role.findOne({ name: "普通用户" })
-    if (!normalRole) {
-      return res
-        .status(500)
-        .json({ success: false, message: "系统错误：未找到默认角色" })
+    // 验证角色
+    let userRoles = []
+    if (roles && Array.isArray(roles)) {
+      // 验证所有提供的角色ID是否有效
+      const validRoles = await Role.find({ _id: { $in: roles } })
+
+      if (validRoles.length !== roles.length) {
+        return res.status(400).json({
+          success: false,
+          message: "提供的某些角色ID无效",
+        })
+      }
+
+      userRoles = validRoles.map((role) => role._id)
+    } else {
+      // 如果没有提供角色，默认分配普通用户角色
+      const normalRole = await Role.findOne({ name: "普通用户" })
+      if (!normalRole) {
+        return res.status(500).json({
+          success: false,
+          message: "系统错误：未找到默认角色",
+        })
+      }
+      userRoles = [normalRole._id]
     }
 
     // 创建新用户
     user = new User({
       username,
       password,
-      roles: [normalRole._id], // 分配普通用户角色
+      roles: userRoles,
     })
     await user.save()
 
@@ -41,6 +59,9 @@ exports.register = async (req, res) => {
       description: `新用户注册: ${user.username}`,
       req,
     })
+
+    // 获取完整的角色信息用于响应
+    const populatedUser = await User.findById(user._id).populate("roles")
 
     // 生成 JWT 令牌
     const token = jwt.sign(
@@ -61,7 +82,7 @@ exports.register = async (req, res) => {
       user: {
         id: user._id,
         username: user.username,
-        roles: [normalRole],
+        roles: populatedUser.roles,
       },
     })
   } catch (err) {
@@ -227,6 +248,54 @@ exports.getUser = async (req, res) => {
     res.status(500).json({
       success: false,
       message: err.message || "服务器错误",
+    })
+  }
+}
+
+// 删除用户
+exports.deleteUser = async (req, res) => {
+  try {
+    const userId = req.params.id
+
+    // 检查用户是否存在
+    const user = await User.findById(userId)
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "用户不存在",
+      })
+    }
+
+    // 检查是否是系统用户
+    if (user.isSystem) {
+      return res.status(403).json({
+        success: false,
+        message: "系统用户不能删除",
+      })
+    }
+
+    // 添加审计日志
+    await createAuditLog({
+      userId: req.user.id,
+      action: ACTION_TYPES.USER_DELETE,
+      resourceType: RESOURCE_TYPES.USER,
+      resourceId: user._id,
+      description: `删除用户: ${user.username}`,
+      req,
+    })
+
+    // 删除用户
+    await User.findByIdAndDelete(userId)
+
+    res.json({
+      success: true,
+      message: "用户删除成功",
+    })
+  } catch (err) {
+    console.error("删除用户失败:", err)
+    res.status(500).json({
+      success: false,
+      message: "服务器错误",
     })
   }
 }

@@ -43,20 +43,7 @@ else
     echo "Node.js 已安装，版本: $(node -v)"
 fi
 
-# 检查并安装 Nginx
-echo "正在检查 Nginx..."
 
-# 完全卸载现有的 nginx 和 openresty 相关包
-echo "移除现有的 nginx 和 openresty 相关包..."
-sudo apt-get remove -y nginx nginx-common nginx-full nginx-core nginx-extras openresty openresty-resty openresty-opm || true
-sudo apt-get autoremove -y
-sudo apt-get clean
-
-# 清理所有旧的 OpenResty 源配置
-echo "清理旧的 OpenResty 源配置..."
-sudo rm -f /etc/apt/sources.list.d/openresty.list
-sudo rm -f /etc/apt/sources.list.d/openresty.list.save
-sudo rm -f /usr/share/keyrings/openresty.gpg
 
 # 在安装 nginx 之前创建证书目录和默认证书
 echo "创建 SSL 证书目录和默认证书..."
@@ -76,8 +63,6 @@ echo "安装标准 Nginx..."
 sudo apt-get update
 sudo apt-get install -y nginx
 
-# 将应用用户添加到 www-data 组
-sudo usermod -a -G www-data $USER
 
 # 验证 Nginx 配置
 echo "验证 Nginx 配置..."

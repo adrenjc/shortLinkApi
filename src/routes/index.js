@@ -1,6 +1,6 @@
 const express = require("express")
 const { auth } = require("../middleware/auth")
-const { register, login, getUser } = require("../controllers/auth")
+const { register, login, getUser, deleteUser } = require("../controllers/auth")
 const {
   createShortLink,
   getLinks,
@@ -71,6 +71,11 @@ router.put(
   "/users/:id",
   checkPermission(PERMISSION_CODES.USER_UPDATE),
   updateUser
+)
+router.delete(
+  "/users/:id",
+  checkPermission(PERMISSION_CODES.USER_DELETE),
+  deleteUser
 )
 
 // 域名管理路由

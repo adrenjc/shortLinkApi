@@ -10,7 +10,7 @@ const generateShortKey = (longUrl) => {
 }
 
 const createShortLink = async (req, res) => {
-  const { longUrl, customDomain } = req.body
+  const { longUrl, customDomain, customShortKey } = req.body
   const isDev = process.env.NODE_ENV === "development"
 
   console.log("Received request body:", req.body)
@@ -19,8 +19,27 @@ const createShortLink = async (req, res) => {
     return res.status(400).send({ success: false, message: "长链接不能为空" })
   }
 
+  // 验证自定义短链key的格式
+  if (
+    customShortKey &&
+    (customShortKey.length < 4 || customShortKey.length > 6)
+  ) {
+    return res
+      .status(400)
+      .send({ success: false, message: "自定义短链key长度必须在4-6位之间" })
+  }
+
   try {
-    const shortKey = generateShortKey(longUrl)
+    const shortKey = customShortKey || generateShortKey(longUrl)
+
+    // 检查shortKey是否已存在
+    const existingLink = await Link.findOne({ shortKey })
+    if (existingLink) {
+      return res.status(400).json({
+        success: false,
+        message: "该短链key已存在，请更换一个",
+      })
+    }
 
     // 获取当前域名，并去除 www 前缀
     const currentDomain = req.get("host").replace(/^www\./, "")
@@ -236,58 +255,97 @@ const deleteLink = async (req, res) => {
 // 更新短链接
 const updateLink = async (req, res) => {
   const { id } = req.params
-  const { longUrl } = req.body
+  const { longUrl, customShortKey } = req.body
 
   try {
+    // 验证自定义短链key的格式
+    if (
+      customShortKey &&
+      (customShortKey.length < 4 || customShortKey.length > 6)
+    ) {
+      return res
+        .status(400)
+        .send({ success: false, message: "自定义短链key长度必须在4-6位之间" })
+    }
+
+    // 先获取原始链接信息
+    const oldLink = await Link.findOne({
+      _id: id,
+      createdBy: req.user.id,
+    })
+
+    if (!oldLink) {
+      return res.status(404).json({ success: false, message: "链接未找到" })
+    }
+
+    // 如果customShortKey是空字符串，生成新的随机key
+    const newShortKey = !customShortKey
+      ? generateShortKey(longUrl)
+      : customShortKey
+
+    // 如果要更新shortKey，检查是否已存在
+    if (newShortKey && newShortKey !== oldLink.shortKey) {
+      const existingLink = await Link.findOne({ shortKey: newShortKey })
+      if (existingLink) {
+        return res.status(400).json({
+          success: false,
+          message: "该短链key已存在，请更换一个",
+        })
+      }
+    }
+
+    // 构建更新对象
+    const updateData = { longUrl }
+    if (
+      customShortKey === "" ||
+      (newShortKey && newShortKey !== oldLink.shortKey)
+    ) {
+      updateData.shortKey = newShortKey
+      // 更新shortUrl
+      const baseUrl = oldLink.shortUrl.split("/r/")[0]
+      updateData.shortUrl = `${baseUrl}/r/${newShortKey}`
+    }
+
+    // 更新链接
     const link = await Link.findOneAndUpdate(
       {
         _id: id,
         createdBy: req.user.id,
       },
-      { longUrl },
+      updateData,
       { new: true }
     )
 
-    if (!link) {
-      return res.status(404).json({ success: false, message: "链接未找到" })
-    }
-
-    // 添加审计日志
+    // 添加审计日志，记录变更前后的链接
     await createAuditLog({
       userId: req.user.id,
       action: ACTION_TYPES.UPDATE_LINK,
       resourceType: RESOURCE_TYPES.LINK,
       resourceId: link._id,
-      description: `更新短链接: ${link.shortUrl}`,
-      metadata: { longUrl: link.longUrl },
+      description: `更新短链接: ${link.shortUrl}，从 ${oldLink.longUrl} 改为 ${
+        link.longUrl
+      }${
+        newShortKey !== oldLink.shortKey
+          ? `，短链key从 ${oldLink.shortKey} 改为 ${newShortKey}`
+          : ""
+      }`,
+      metadata: {
+        oldLongUrl: oldLink.longUrl,
+        newLongUrl: link.longUrl,
+        oldShortKey: oldLink.shortKey,
+        newShortKey: link.shortKey,
+      },
       req,
     })
 
     // 清除 Redis 缓存
     try {
-      await delAsync(`shortlink:${link.shortKey}`)
+      await delAsync(`shortlink:${oldLink.shortKey}`)
+      if (newShortKey !== oldLink.shortKey) {
+        await delAsync(`shortlink:${newShortKey}`)
+      }
     } catch (error) {
       console.error("Redis缓存清除失败:", error)
-    }
-
-    // 清除 Nginx 缓存
-    try {
-      // 使用环境变量中配置的 Nginx 内部地址
-      const nginxPurgeUrl = `${process.env.NGINX_INTERNAL_URL}/purge/r/${link.shortKey}`
-
-      // 设置请求超时和重试
-      await axios.get(nginxPurgeUrl, {
-        timeout: 5000, // 5秒超时
-        headers: {
-          Host: req.get("host"), // 传递原始 host 头
-        },
-        validateStatus: function (status) {
-          return (status >= 200 && status < 300) || status === 404 // 404 也算成功（缓存可能不存在）
-        },
-      })
-    } catch (error) {
-      console.error("Nginx缓存清除失败:", error.message)
-      // 这里我们只记录错误，不影响正常流程
     }
 
     res.json({ success: true, data: link })
