@@ -2,6 +2,13 @@ const Link = require("../models/Link")
 const { createAuditLog } = require("./auditLog")
 const { ACTION_TYPES, RESOURCE_TYPES } = require("../constants/auditLogTypes")
 const { getAsync, setAsync, delAsync } = require("../config/redis")
+// 导入内存缓存
+const { shortLinkCache } = require("../utils/memoryCache")
+// 导入缓存策略
+const {
+  incrementAccessCount,
+  calculateCacheTime,
+} = require("../utils/cacheStrategy")
 
 const generateShortKey = (longUrl) => {
   // 使用时间戳和长链接生成短链接
@@ -127,38 +134,76 @@ const createShortLink = async (req, res) => {
 
 const redirectToLongLink = async (req, res) => {
   const { shortKey } = req.params
+  const startTime = Date.now()
 
   try {
     // 检查是否是压力测试请求
     const isLoadTest = req.get("X-Load-Test") === "true"
 
-    // 1. 尝试从 Redis 缓存中查询
-    let cachedUrl = null
+    // 1. 首先尝试从内存缓存中查询（最快）
+    const cachedInMemory = shortLinkCache.get(shortKey)
+    if (cachedInMemory) {
+      // 异步更新访问计数，不阻塞响应
+      process.nextTick(() => {
+        incrementAccessCount(shortKey)
+      })
+
+      // 记录缓存命中指标
+      const duration = Date.now() - startTime
+      console.log(`内存缓存命中: ${shortKey}, 耗时: ${duration}ms`)
+
+      return res.redirect(cachedInMemory)
+    }
+
+    // 2. 内存缓存未命中，尝试从Redis缓存中查询
+    let cachedInRedis = null
     try {
-      cachedUrl = await getAsync(`shortlink:${shortKey}`)
+      cachedInRedis = await getAsync(`shortlink:${shortKey}`)
     } catch (error) {
       console.error("Redis查询失败，降级到数据库查询:", error)
     }
 
-    if (cachedUrl) {
-      return res.redirect(cachedUrl)
+    if (cachedInRedis) {
+      // 将结果添加到内存缓存
+      shortLinkCache.set(shortKey, cachedInRedis)
+
+      // 异步更新访问计数
+      process.nextTick(() => {
+        incrementAccessCount(shortKey)
+      })
+
+      // 记录缓存命中指标
+      const duration = Date.now() - startTime
+      console.log(`Redis缓存命中: ${shortKey}, 耗时: ${duration}ms`)
+
+      return res.redirect(cachedInRedis)
     }
 
-    // 3. 缓存未命中或Redis不可用，查询数据库
+    // 3. 缓存全部未命中，查询数据库
     const link = await Link.findOne({ shortKey })
 
     if (!link) {
       return res.status(404).send({ success: false, message: "短链接未找到" })
     }
 
-    // 4. 尝试写入Redis缓存
+    // 4. 更新访问计数
+    incrementAccessCount(shortKey)
+
+    // 5. 计算动态缓存时间
+    const cacheTime = calculateCacheTime(shortKey, link)
+
+    // 6. 将结果添加到多级缓存
+    // 添加到内存缓存
+    shortLinkCache.set(shortKey, link.longUrl)
+
+    // 添加到Redis缓存，使用动态过期时间
     try {
-      await setAsync(`shortlink:${shortKey}`, link.longUrl, "EX", 3600)
+      await setAsync(`shortlink:${shortKey}`, link.longUrl, "EX", cacheTime)
     } catch (error) {
       console.error("Redis缓存写入失败:", error)
     }
 
-    // 5. 如果不是压力测试，则记录审计日志
+    // 7. 如果不是压力测试，则记录审计日志
     if (!isLoadTest) {
       process.nextTick(async () => {
         try {
@@ -173,6 +218,7 @@ const redirectToLongLink = async (req, res) => {
               referer: req.get("referer") || "direct",
               userAgent: req.get("user-agent"),
               ipAddress: req.ip,
+              responseTime: Date.now() - startTime,
             },
             req,
             status: "SUCCESS",
@@ -182,6 +228,12 @@ const redirectToLongLink = async (req, res) => {
         }
       })
     }
+
+    // 记录数据库查询指标
+    const duration = Date.now() - startTime
+    console.log(
+      `数据库查询: ${shortKey}, 耗时: ${duration}ms, 缓存时间: ${cacheTime}秒`
+    )
 
     return res.redirect(link.longUrl)
   } catch (err) {
@@ -221,19 +273,46 @@ const getLinks = async (req, res) => {
     })
   }
 }
-// 删除短链接
-const deleteLink = async (req, res) => {
-  const { id } = req.params
 
+// 当删除或更新短链接时，同时清除缓存
+const clearLinkCache = async (shortKey) => {
   try {
-    const link = await Link.findOneAndDelete({
-      _id: id,
-      createdBy: req.user.id,
-    })
+    // 清除内存缓存
+    shortLinkCache.delete(shortKey)
+
+    // 清除Redis缓存
+    await delAsync(`shortlink:${shortKey}`)
+
+    console.log(`已清除短链接缓存: ${shortKey}`)
+  } catch (error) {
+    console.error(`清除缓存失败: ${shortKey}`, error)
+  }
+}
+
+// 修改删除短链接函数，清除缓存
+const deleteLink = async (req, res) => {
+  try {
+    const link = await Link.findById(req.params.id)
 
     if (!link) {
-      return res.status(404).json({ success: false, message: "链接未找到" })
+      return res.status(404).send({ success: false, message: "短链接未找到" })
     }
+
+    // 检查权限
+    if (
+      link.createdBy.toString() !== req.user.id &&
+      req.user.role !== "admin"
+    ) {
+      return res.status(403).send({
+        success: false,
+        message: "没有权限删除此短链接",
+      })
+    }
+
+    // 清除缓存
+    await clearLinkCache(link.shortKey)
+
+    await link.remove()
 
     // 添加审计日志
     await createAuditLog({
@@ -246,112 +325,56 @@ const deleteLink = async (req, res) => {
       req,
     })
 
-    res.json({ success: false, message: "链接已删除" })
+    res.json({ success: true, message: "短链接已删除" })
   } catch (err) {
+    console.error(err)
     res.status(500).send({ success: false, message: "服务器错误" })
   }
 }
 
-// 更新短链接
+// 修改更新短链接函数，清除缓存
 const updateLink = async (req, res) => {
-  const { id } = req.params
-  const { longUrl, customShortKey } = req.body
-
   try {
-    // 验证自定义短链key的格式
+    const { longUrl } = req.body
+    const link = await Link.findById(req.params.id)
+
+    if (!link) {
+      return res.status(404).send({ success: false, message: "短链接未找到" })
+    }
+
+    // 检查权限
     if (
-      customShortKey &&
-      (customShortKey.length < 4 || customShortKey.length > 6)
+      link.createdBy.toString() !== req.user.id &&
+      req.user.role !== "admin"
     ) {
-      return res
-        .status(400)
-        .send({ success: false, message: "自定义短链key长度必须在4-6位之间" })
+      return res.status(403).send({
+        success: false,
+        message: "没有权限更新此短链接",
+      })
     }
 
-    // 先获取原始链接信息
-    const oldLink = await Link.findOne({
-      _id: id,
-      createdBy: req.user.id,
-    })
-
-    if (!oldLink) {
-      return res.status(404).json({ success: false, message: "链接未找到" })
-    }
-
-    // 如果customShortKey是空字符串，生成新的随机key
-    const newShortKey = !customShortKey
-      ? generateShortKey(longUrl)
-      : customShortKey
-
-    // 如果要更新shortKey，检查是否已存在
-    if (newShortKey && newShortKey !== oldLink.shortKey) {
-      const existingLink = await Link.findOne({ shortKey: newShortKey })
-      if (existingLink) {
-        return res.status(400).json({
-          success: false,
-          message: "该短链key已存在，请更换一个",
-        })
-      }
-    }
-
-    // 构建更新对象
-    const updateData = { longUrl }
-    if (
-      customShortKey === "" ||
-      (newShortKey && newShortKey !== oldLink.shortKey)
-    ) {
-      updateData.shortKey = newShortKey
-      // 更新shortUrl
-      const baseUrl = oldLink.shortUrl.split("/r/")[0]
-      updateData.shortUrl = `${baseUrl}/r/${newShortKey}`
-    }
+    // 清除缓存
+    await clearLinkCache(link.shortKey)
 
     // 更新链接
-    const link = await Link.findOneAndUpdate(
-      {
-        _id: id,
-        createdBy: req.user.id,
-      },
-      updateData,
-      { new: true }
-    )
+    link.longUrl = longUrl || link.longUrl
+    await link.save()
 
-    // 添加审计日志，记录变更前后的链接
+    // 添加审计日志
     await createAuditLog({
       userId: req.user.id,
       action: ACTION_TYPES.UPDATE_LINK,
       resourceType: RESOURCE_TYPES.LINK,
       resourceId: link._id,
-      description: `更新短链接: ${link.shortUrl}，从 ${oldLink.longUrl} 改为 ${
-        link.longUrl
-      }${
-        newShortKey !== oldLink.shortKey
-          ? `，短链key从 ${oldLink.shortKey} 改为 ${newShortKey}`
-          : ""
-      }`,
-      metadata: {
-        oldLongUrl: oldLink.longUrl,
-        newLongUrl: link.longUrl,
-        oldShortKey: oldLink.shortKey,
-        newShortKey: link.shortKey,
-      },
+      description: `更新短链接: ${link.shortUrl}`,
+      metadata: { longUrl: link.longUrl },
       req,
     })
 
-    // 清除 Redis 缓存
-    try {
-      await delAsync(`shortlink:${oldLink.shortKey}`)
-      if (newShortKey !== oldLink.shortKey) {
-        await delAsync(`shortlink:${newShortKey}`)
-      }
-    } catch (error) {
-      console.error("Redis缓存清除失败:", error)
-    }
-
-    res.json({ success: true, data: link })
+    res.json(link)
   } catch (err) {
-    console.error("更新短链接错误:", err)
-    res.status(500).json({ success: false, message: "服务器错误" })
+    console.error(err)
+    res.status(500).send({ success: false, message: "服务器错误" })
   }
 }
 

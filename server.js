@@ -11,8 +11,47 @@ const router = require("./src/routes")
 const rateLimit = require("express-rate-limit")
 const mongoose = require("mongoose")
 const sslService = require("./src/services/sslService")
+// 添加压缩和安全中间件
+const compression = require("compression")
+const helmet = require("helmet")
+const morgan = require("morgan")
 
 const app = express()
+
+// 安全中间件
+app.use(helmet())
+
+// 压缩中间件
+app.use(
+  compression({
+    level: 6, // 压缩级别，平衡CPU使用和压缩率
+    threshold: 1024, // 只压缩大于1KB的响应
+    filter: (req, res) => {
+      // 不压缩已经压缩的资源
+      if (
+        req.headers["content-type"] &&
+        (req.headers["content-type"].includes("image/") ||
+          req.headers["content-type"].includes("video/"))
+      ) {
+        return false
+      }
+      return compression.filter(req, res)
+    },
+  })
+)
+
+// 日志中间件
+if (process.env.NODE_ENV === "production") {
+  // 生产环境使用简洁日志
+  app.use(
+    morgan("combined", {
+      skip: (req, res) => res.statusCode < 400, // 只记录错误响应
+    })
+  )
+} else {
+  // 开发环境使用详细日志
+  app.use(morgan("dev"))
+}
 
 // 中间件
 app.use(cors()) // 允许跨域
@@ -54,19 +93,34 @@ app.use((req, res, next) => {
   next()
 })
 
-// 添加请求限流
-const limiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1分钟
-  max: 1000, // 每个IP最多1000个请求
+// 添加健康检查端点
+app.get("/health", (req, res) => {
+  const healthcheck = {
+    uptime: process.uptime(),
+    message: "OK",
+    timestamp: Date.now(),
+  }
+  res.status(200).send(healthcheck)
 })
-
-// 应用限流
-app.use(limiter)
 
 // 优化错误处理
 app.use((err, req, res, next) => {
   console.error("服务器错误:", err)
-  res.status(500).send("服务器错误")
+
+  // 区分开发环境和生产环境的错误响应
+  if (process.env.NODE_ENV === "development") {
+    res.status(500).send({
+      success: false,
+      message: "服务器错误",
+      error: err.message,
+      stack: err.stack,
+    })
+  } else {
+    res.status(500).send({
+      success: false,
+      message: "服务器错误",
+    })
+  }
 })
 
 // 初始化 SSL 服务
@@ -96,6 +150,18 @@ const startServer = async () => {
     server.keepAliveTimeout = 65000
     server.headersTimeout = 66000
     server.maxConnections = 10000 // 最大连接数
+
+    // 优雅关闭
+    process.on("SIGTERM", () => {
+      console.log("收到 SIGTERM 信号，准备关闭服务器...")
+      server.close(() => {
+        console.log("服务器已关闭")
+        mongoose.connection.close(false, () => {
+          console.log("MongoDB 连接已关闭")
+          process.exit(0)
+        })
+      })
+    })
   } catch (error) {
     console.error("Server startup error:", error)
     process.exit(1)

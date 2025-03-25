@@ -37,18 +37,28 @@ const {
 const { getPermissions } = require("../controllers/permission")
 const { checkPermission } = require("../middleware/checkPermission")
 const { PERMISSION_CODES } = require("../constants/permissions")
+// 导入限流中间件
+const {
+  redirectLimiter,
+  apiLimiter,
+  loginLimiter,
+} = require("../middleware/rateLimiter")
 
 require("dotenv").config()
 const router = express.Router()
 
 // 认证路由
 router.post("/register", register)
-router.post("/login", login)
-router.get("/r/:shortKey", redirectToLongLink)
+router.post("/login", loginLimiter, login)
+// 应用短链接跳转限流
+router.get("/r/:shortKey", redirectLimiter, redirectToLongLink)
 router.get("/user", getUser)
 
 // 受保护路由
 router.use(auth)
+
+// 应用API限流
+router.use(apiLimiter)
 
 router
   .route("/links")

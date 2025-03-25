@@ -9,7 +9,9 @@
     "start:prod": "cross-env NODE_ENV=production pm2-runtime ecosystem.config.js",
     "deploy": "pm2 reload ecosystem.config.js",
     "seed:dev": "cross-env NODE_ENV=development node scripts/seed.js",
-    "seed:prod": "cross-env NODE_ENV=production node scripts/seed.js"
+    "seed:prod": "cross-env NODE_ENV=production node scripts/seed.js",
+    "test:load": "k6 run load-test.js",
+    "analyze": "node scripts/analyze-performance.js"
   },
   "keywords": [],
   "author": "",
@@ -33,6 +35,7 @@
     "winston": "^3.11.0"
   },
   "devDependencies": {
-    "cross-env": "^7.0.3"
+    "cross-env": "^7.0.3",
+    "nodemon": "^3.0.1"
   }
 }
