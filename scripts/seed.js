@@ -103,11 +103,37 @@ const initUsers = async (adminRole, normalRole) => {
       console.log("admin 用户创建完成")
     }
 
+    // 查找或创建 superadmin 用户
+    let superAdminUser = await User.findOne({ username: "superadmin" })
+
+    if (superAdminUser) {
+      console.log("检测到已存在 superadmin 用户，正在更新...")
+      // 更新 superadmin 用户信息
+      superAdminUser.roles = [adminRole._id]
+      superAdminUser.isSystem = true
+      superAdminUser.isAdmin = true
+      await superAdminUser.save()
+      console.log("superadmin 用户更新完成")
+    } else {
+      console.log("未检测到 superadmin 用户，正在创建...")
+      // 创建新的 superadmin 用户
+      superAdminUser = new User({
+        username: "superadmin",
+        password: "123456",
+        roles: [adminRole._id],
+        isSystem: true,
+        isAdmin: true,
+        nickname: "superadmin",
+      })
+      await superAdminUser.save()
+      console.log("superadmin 用户创建完成")
+    }
+
     // 为其他所有用户分配普通用户角色
     console.log("开始更新其他用户角色...")
     const result = await User.updateMany(
       {
-        username: { $ne: "admin" }, // 排除 admin 用户
+        username: { $nin: ["admin", "superadmin"] }, // 排除 admin 和 superadmin 用户
         $or: [
           { roles: { $exists: false } }, // 没有 roles 字段
           { roles: { $eq: [] } }, // roles 为空数组
