@@ -8,6 +8,9 @@ const {
   deleteLink,
   redirectToLongLink,
   updateLink,
+  getAllLinks,
+  getLinkClickRecords,
+  getLinkHistory,
 } = require("../controllers/link")
 const {
   streamChat,
@@ -54,6 +57,27 @@ router
   .route("/links")
   .post(checkPermission(PERMISSION_CODES.LINK_CREATE), createShortLink)
   .get(checkPermission(PERMISSION_CODES.LINK_VIEW), getLinks)
+
+// 获取所有用户的短链接路由（需要特殊权限）
+router.get(
+  "/links/all",
+  checkPermission(PERMISSION_CODES.LINK_VIEW_ALL),
+  getAllLinks
+)
+
+// 获取特定短链接的点击记录
+router.get(
+  "/links/:id/clicks",
+  checkPermission(PERMISSION_CODES.LINK_VIEW),
+  getLinkClickRecords
+)
+
+// 获取短链接的历史记录
+router.get(
+  "/links/:id/history",
+  checkPermission(PERMISSION_CODES.LINK_VIEW),
+  getLinkHistory
+)
 
 router
   .route("/links/:id")

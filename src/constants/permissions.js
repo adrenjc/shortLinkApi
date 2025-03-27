@@ -43,6 +43,7 @@ const PERMISSION_CODES = {
   LINK_UPDATE: "link:update",
   LINK_DELETE: "link:delete",
   LINK_MANAGE: "link:manage",
+  LINK_VIEW_ALL: "link:view:all",
 
   // 审计日志
   AUDIT_VIEW: "audit:view",
@@ -217,6 +218,13 @@ const PERMISSIONS = [
     code: PERMISSION_CODES.LINK_MANAGE,
     name: "短链管理",
     description: "短链全部管理权限",
+    type: "operation",
+    group: "短链管理",
+  },
+  {
+    code: PERMISSION_CODES.LINK_VIEW_ALL,
+    name: "查看所有短链",
+    description: "查看所有用户创建的短链接及创建者信息",
     type: "operation",
     group: "短链管理",
   },

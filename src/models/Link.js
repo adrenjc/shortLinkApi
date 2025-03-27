@@ -18,6 +18,11 @@ const linkSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    remark: {
+      type: String,
+      maxlength: 256,
+      default: "",
+    },
   },
   { timestamps: true } // 启用时间戳
 )
