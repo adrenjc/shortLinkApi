@@ -350,6 +350,67 @@ mongodump --db shortlink --out D:\backups\mongodb\%date:~0,4%%date:~5,2%%date:~8
 - 使用 Git 管理代码版本
 - 保存环境变量配置
 
+### 备份文件同步
+
+为了确保数据安全，建议将备份文件同步到外部存储。本项目提供了将备份文件同步到外部目录或云存储(AWS S3)的功能。
+
+#### 配置同步设置
+
+在环境变量文件中配置以下参数：
+
+```
+# 本地外部目录同步
+EXTERNAL_BACKUP_DIR=/path/to/external/storage
+
+# AWS S3同步
+S3_BUCKET=your-s3-bucket-name
+S3_PREFIX=mongodb-backups/
+```
+
+#### 同步到外部本地目录
+
+```bash
+npm run sync-backup:local
+```
+
+此命令将备份文件同步到`EXTERNAL_BACKUP_DIR`指定的目录。
+
+#### 同步到 AWS S3
+
+使用前需先安装并配置 AWS CLI：
+
+1. 安装 AWS CLI：[AWS CLI 安装指南](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
+2. 配置 AWS 凭证：`aws configure`
+
+然后运行同步命令：
+
+```bash
+npm run sync-backup:s3
+```
+
+此命令将备份文件同步到 S3 存储桶的指定路径。
+
+#### 设置自动同步
+
+您可以将同步命令添加到备份脚本之后，或设置另一个定时任务：
+
+**Linux/Mac (crontab):**
+
+```
+# 每天凌晨3点同步备份文件到S3
+0 3 * * * cd /path/to/project && npm run sync-backup:s3 >> ./backups/sync.log 2>&1
+```
+
+**Windows (Task Scheduler):**
+创建一个批处理文件 `sync-backup.bat`：
+
+```
+cd /d D:\path\to\project
+npm run sync-backup:s3
+```
+
+然后在任务计划程序中创建一个任务，每天凌晨 3 点运行此批处理文件。
+
 ## 9. 扩展建议
 
 ### 9.1 负载均衡
@@ -374,3 +435,144 @@ mongodump --db shortlink --out D:\backups\mongodb\%date:~0,4%%date:~5,2%%date:~8
 - 技术支持邮箱：[your-email]
 - 项目仓库：[repository-url]
 - 文档地址：[docs-url]
+
+## 数据库备份与恢复指南
+
+本项目包含自动备份和恢复 MongoDB 数据库的脚本。这些工具可以帮助您定期备份数据，并在需要时恢复数据，保障系统安全。
+
+### 前提条件
+
+1. 确保已安装 MongoDB 数据库工具集，包括`mongodump`和`mongorestore`命令
+2. 如果没有安装，可以按照以下步骤安装：
+
+**Windows:**
+
+1. 下载 MongoDB 数据库工具: https://www.mongodb.com/try/download/database-tools
+2. 安装并确保添加到 PATH 环境变量
+
+**Linux (Ubuntu/Debian):**
+
+```bash
+sudo apt-get update
+sudo apt-get install -y mongodb-clients
+```
+
+**macOS:**
+
+```bash
+brew tap mongodb/brew
+brew install mongodb-database-tools
+```
+
+### 手动备份数据库
+
+您可以使用以下命令手动备份数据库：
+
+```bash
+# 生产环境
+npm run backup
+
+# 开发环境
+npm run backup:dev
+```
+
+备份文件将保存在项目根目录的`backups`文件夹中，格式为`shortlink_[时间戳].gz`。
+
+### 列出可用备份
+
+要查看所有可用的备份，请运行：
+
+```bash
+# 生产环境
+npm run restore list
+
+# 开发环境
+npm run restore:dev list
+```
+
+这将显示所有备份文件的列表，包括创建时间和文件大小。
+
+### 恢复数据库
+
+要从备份文件恢复数据库，请运行：
+
+```bash
+# 生产环境
+npm run restore restore <备份文件名>
+
+# 开发环境
+npm run restore:dev restore <备份文件名>
+```
+
+例如：
+
+```bash
+npm run restore restore shortlink_2023-06-01T02-00-00.gz
+```
+
+执行恢复命令后，系统会提示确认，因为恢复操作会覆盖当前数据库内容。
+
+### 设置自动备份
+
+您可以设置定期自动备份，支持每日、每周或每月备份：
+
+```bash
+# 设置每日备份（默认）
+npm run setup-backup
+
+# 设置每周备份
+npm run setup-backup weekly
+
+# 设置每月备份
+npm run setup-backup monthly
+```
+
+这将根据您的操作系统自动设置相应的定时任务：
+
+- 在 Linux/Mac 上使用 crontab
+- 在 Windows 上使用计划任务（Task Scheduler）
+
+默认备份时间是凌晨 2:00，以减少对系统的影响。
+
+### 备份存储管理
+
+默认情况下，备份文件保存在项目根目录的`backups`文件夹中，系统会自动删除超过 7 天的备份文件。
+
+您可以通过在环境变量文件(.env.production 或.env.development)中添加以下配置来自定义备份设置：
+
+```
+BACKUP_DIR=/custom/path/to/backups  # 自定义备份目录
+BACKUP_RETENTION_DAYS=30            # 保留备份的天数
+```
+
+### 备份最佳实践
+
+1. **定期验证备份**：定期测试恢复过程，确保备份有效
+2. **外部存储**：考虑将备份文件复制到外部存储（如云存储）
+3. **监控备份**：检查备份日志文件（./backups/backup.log）确保备份成功
+4. **在进行重大更改前备份**：在进行数据库结构更改或大量数据更新前进行手动备份
+5. **权限控制**：限制对备份文件的访问权限
+
+### 备份错误排查
+
+如果备份过程中遇到问题，请检查：
+
+1. MongoDB 连接字符串是否正确
+2. 备份目录是否有写入权限
+3. 是否已安装 MongoDB 数据库工具
+4. 查看备份日志（./backups/backup.log）获取详细错误信息
+
+如有需要，可以手动执行 mongodump 命令进行备份：
+
+```bash
+mongodump --uri="mongodb://localhost:27017/shortlink" --gzip --archive=./manual-backup.gz
+```
+
+### 数据恢复错误排查
+
+如果恢复过程中遇到问题，请检查：
+
+1. 备份文件是否存在且未损坏
+2. MongoDB 连接字符串是否正确
+3. 是否有足够的数据库权限
+4. 查看恢复日志（./backups/restore.log）获取详细错误信息

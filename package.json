@@ -9,7 +9,12 @@
     "start:prod": "cross-env NODE_ENV=production pm2-runtime ecosystem.config.js",
     "deploy": "pm2 reload ecosystem.config.js",
     "seed:dev": "cross-env NODE_ENV=development node scripts/seed.js",
-    "seed:prod": "cross-env NODE_ENV=production node scripts/seed.js"
+    "seed:prod": "cross-env NODE_ENV=production node scripts/seed.js",
+    "backup": "cross-env NODE_ENV=production node scripts/database-backup.js",
+    "backup:dev": "cross-env NODE_ENV=development node scripts/database-backup.js",
+    "restore": "cross-env NODE_ENV=production node scripts/database-restore.js",
+    "restore:dev": "cross-env NODE_ENV=development node scripts/database-restore.js",
+    "setup-backup": "cross-env NODE_ENV=production node scripts/setup-backup-cron.js"
   },
   "keywords": [],
   "author": "",
