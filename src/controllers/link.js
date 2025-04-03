@@ -9,6 +9,7 @@ const {
   formatReferer,
 } = require("../utils/formatter")
 const { PERMISSION_CODES } = require("../constants/permissions")
+const { escapeRegExp } = require("../utils/escapeRegExp")
 
 const generateShortKey = (longUrl) => {
   // 使用时间戳和长链接生成短链接
@@ -46,8 +47,10 @@ const createShortLink = async (req, res) => {
   try {
     const shortKey = customShortKey || generateShortKey(longUrl)
 
-    // 检查shortKey是否已存在
-    const existingLink = await Link.findOne({ shortKey })
+    // 检查shortKey是否已存在 (忽略大小写)
+    const existingLink = await Link.findOne({
+      shortKey: { $regex: new RegExp(`^${escapeRegExp(shortKey)}$`, "i") },
+    })
     if (existingLink) {
       return res.status(400).json({
         success: false,
@@ -148,7 +151,56 @@ const redirectToLongLink = async (req, res) => {
     // 检查是否是压力测试请求
     const isLoadTest = req.get("X-Load-Test") === "true"
 
-    // 1. 尝试从 Redis 缓存中查询
+    // 获取User-Agent
+    const userAgent = req.get("user-agent") || ""
+
+    // 检查是否是爬虫/机器人
+    const botPatterns = [
+      /bot/i,
+      /spider/i,
+      /crawl/i,
+      /slurp/i,
+      /baiduspider/i,
+      /googlebot/i,
+      /yandex/i,
+      /bingbot/i,
+      /facebookexternalhit/i,
+      /semrushbot/i,
+      /ahrefsbot/i,
+      /mj12bot/i,
+      /screaming frog/i,
+      /datanyze/i,
+      /sogou/i,
+      /exabot/i,
+      /ia_archiver/i,
+      /curl/i,
+      /wget/i,
+      /python-requests/i,
+      /apache-httpclient/i,
+      /go-http-client/i,
+    ]
+
+    const isBot = botPatterns.some((pattern) => pattern.test(userAgent))
+
+    // 提取用户真实IP地址
+    const getClientIp = (req) => {
+      // 从各种可能的请求头中获取
+      const xForwardedFor = req.headers["x-forwarded-for"]
+      const realIp = req.headers["x-real-ip"]
+
+      if (xForwardedFor) {
+        // X-Forwarded-For 可能包含多个IP，第一个是客户端真实IP
+        const ips = xForwardedFor.split(",").map((ip) => ip.trim())
+        return ips[0] || realIp || req.ip || "unknown"
+      }
+
+      return realIp || req.ip || "unknown"
+    }
+
+    const clientIp = getClientIp(req)
+    const visitId = `${shortKey}:${clientIp}`
+
+    // 1. 尝试从 Redis 缓存中查询链接URL
     let cachedUrl = null
     try {
       cachedUrl = await getAsync(`shortlink:${shortKey}`)
@@ -156,12 +208,37 @@ const redirectToLongLink = async (req, res) => {
       console.error("Redis查询失败，降级到数据库查询:", error)
     }
 
-    if (cachedUrl) {
-      // 如果不是压力测试，则异步记录点击日志
-      if (!isLoadTest) {
-        // 先查找link记录
-        const link = await Link.findOne({ shortKey })
-        if (link) {
+    // 2. 查找对应的短链接记录
+    const link = cachedUrl
+      ? await Link.findOne({ shortKey })
+      : await Link.findOne({ shortKey })
+
+    // 如果链接不存在，返回404
+    if (!link) {
+      return res.status(404).send({ success: false, message: "短链接未找到" })
+    }
+
+    // 3. 缓存短链接的目标URL (如果缓存未命中)
+    if (!cachedUrl) {
+      try {
+        await setAsync(`shortlink:${shortKey}`, link.longUrl, "EX", 3600)
+      } catch (error) {
+        console.error("Redis缓存写入失败:", error)
+      }
+    }
+
+    // 4. 记录点击日志（如果不是爬虫且不是压力测试）
+    if (!isBot && !isLoadTest) {
+      try {
+        // 检查是否是短时间内重复访问(5分钟内)
+        const visitKey = `visit:${visitId}`
+        const hasRecentVisit = await getAsync(visitKey)
+
+        if (!hasRecentVisit) {
+          // 设置访问标记，5分钟内同一IP访问同一短链接只记录一次
+          await setAsync(visitKey, "1", "EX", 300)
+
+          // 异步记录点击日志
           process.nextTick(async () => {
             try {
               await createAuditLog({
@@ -174,8 +251,9 @@ const redirectToLongLink = async (req, res) => {
                   longUrl: link.longUrl,
                   remark: link.remark,
                   referer: req.get("referer") || "direct",
-                  userAgent: req.get("user-agent"),
-                  ipAddress: req.ip,
+                  userAgent: userAgent,
+                  ipAddress: clientIp,
+                  isBot: false,
                 },
                 req,
                 status: "SUCCESS",
@@ -185,26 +263,39 @@ const redirectToLongLink = async (req, res) => {
             }
           })
         }
+      } catch (error) {
+        console.error("访问去重检查失败:", error)
+        // 发生错误时，降级为不进行去重检查，仍然记录点击
+        process.nextTick(async () => {
+          try {
+            await createAuditLog({
+              userId: link.createdBy || "system",
+              action: ACTION_TYPES.CLICK_LINK,
+              resourceType: RESOURCE_TYPES.LINK,
+              resourceId: link._id,
+              description: `访问短链接: ${link.shortUrl}`,
+              metadata: {
+                longUrl: link.longUrl,
+                remark: link.remark,
+                referer: req.get("referer") || "direct",
+                userAgent: userAgent,
+                ipAddress: clientIp,
+                isBot: false,
+                noDedup: true,
+              },
+              req,
+              status: "SUCCESS",
+            })
+          } catch (error) {
+            console.error("记录审计日志失败:", error)
+          }
+        })
       }
-      return res.redirect(cachedUrl)
-    }
+    } else if (isBot) {
+      // 如果是爬虫，记录但标记为爬虫访问
+      console.log(`爬虫访问: ${userAgent} -> ${shortKey}`)
 
-    // 3. 缓存未命中或Redis不可用，查询数据库
-    const link = await Link.findOne({ shortKey })
-
-    if (!link) {
-      return res.status(404).send({ success: false, message: "短链接未找到" })
-    }
-
-    // 4. 尝试写入Redis缓存
-    try {
-      await setAsync(`shortlink:${shortKey}`, link.longUrl, "EX", 3600)
-    } catch (error) {
-      console.error("Redis缓存写入失败:", error)
-    }
-
-    // 5. 如果不是压力测试，则记录审计日志
-    if (!isLoadTest) {
+      // 可选：记录爬虫访问，但不计入点击量统计
       process.nextTick(async () => {
         try {
           await createAuditLog({
@@ -212,19 +303,20 @@ const redirectToLongLink = async (req, res) => {
             action: ACTION_TYPES.CLICK_LINK,
             resourceType: RESOURCE_TYPES.LINK,
             resourceId: link._id,
-            description: `访问短链接: ${link.shortUrl}`,
+            description: `爬虫访问短链接: ${link.shortUrl}`,
             metadata: {
               longUrl: link.longUrl,
               remark: link.remark,
               referer: req.get("referer") || "direct",
-              userAgent: req.get("user-agent"),
-              ipAddress: req.ip,
+              userAgent: userAgent,
+              ipAddress: clientIp,
+              isBot: true,
             },
             req,
             status: "SUCCESS",
           })
         } catch (error) {
-          console.error("记录审计日志失败:", error)
+          console.error("记录爬虫审计日志失败:", error)
         }
       })
     }
@@ -276,6 +368,7 @@ const getLinks = async (req, res) => {
         const clickLogs = await AuditLog.find({
           action: ACTION_TYPES.CLICK_LINK,
           resourceId: link._id,
+          "metadata.isBot": { $ne: true }, // 排除标记为爬虫的记录
         })
           .sort({ createdAt: -1 }) // 按时间倒序，最新的在前面
           .limit(10) // 只获取最近10条
@@ -283,6 +376,7 @@ const getLinks = async (req, res) => {
         const clickCount = await AuditLog.countDocuments({
           action: ACTION_TYPES.CLICK_LINK,
           resourceId: link._id,
+          "metadata.isBot": { $ne: true }, // 排除标记为爬虫的记录
         })
 
         // 获取最近点击时间
@@ -370,6 +464,7 @@ const getAllLinks = async (req, res) => {
         const clickLogs = await AuditLog.find({
           action: ACTION_TYPES.CLICK_LINK,
           resourceId: link._id,
+          "metadata.isBot": { $ne: true }, // 排除标记为爬虫的记录
         })
           .sort({ createdAt: -1 }) // 按时间倒序，最新的在前面
           .limit(10) // 只获取最近10条
@@ -377,6 +472,7 @@ const getAllLinks = async (req, res) => {
         const clickCount = await AuditLog.countDocuments({
           action: ACTION_TYPES.CLICK_LINK,
           resourceId: link._id,
+          "metadata.isBot": { $ne: true }, // 排除标记为爬虫的记录
         })
 
         // 获取最近点击时间
@@ -519,7 +615,9 @@ const updateLink = async (req, res) => {
     // 检查shortKey是否有变化，如果有变化，则检查是否已存在
     if (customShortKey && customShortKey !== link.shortKey) {
       const existingLink = await Link.findOne({
-        shortKey: customShortKey,
+        shortKey: {
+          $regex: new RegExp(`^${escapeRegExp(customShortKey)}$`, "i"),
+        },
         customDomain: customDomain || link.customDomain,
         _id: { $ne: id }, // 排除当前链接
       })
@@ -572,6 +670,14 @@ const updateLink = async (req, res) => {
 
     await link.save()
 
+    // 清除Redis缓存，确保获取最新的链接信息
+    try {
+      await delAsync(`shortlink:${link.shortKey}`)
+      console.log(`已清除短链接缓存: ${link.shortKey}`)
+    } catch (error) {
+      console.error("清除Redis缓存失败:", error)
+    }
+
     // 添加详细的审计日志
     await createAuditLog({
       userId: req.user.id,
@@ -611,7 +717,13 @@ const updateLink = async (req, res) => {
 const getLinkClickRecords = async (req, res) => {
   try {
     const { id } = req.params
-    const { current = 1, pageSize = 10, startDate, endDate } = req.query
+    const {
+      current = 1,
+      pageSize = 10,
+      startDate,
+      endDate,
+      showBots = false,
+    } = req.query
 
     // 验证短链接是否存在，并确保用户有权限访问
     const link = await Link.findById(id)
@@ -655,6 +767,11 @@ const getLinkClickRecords = async (req, res) => {
       resourceId: id,
     }
 
+    // 添加爬虫过滤
+    if (showBots !== "true") {
+      query["metadata.isBot"] = { $ne: true }
+    }
+
     // 添加日期范围过滤
     if (startDate || endDate) {
       query.createdAt = {}
@@ -694,6 +811,7 @@ const getLinkClickRecords = async (req, res) => {
       referrer: record.metadata?.referer || "direct",
       // 处理引用来源，使其更易读
       referrerDisplay: formatReferer(record.metadata?.referer),
+      isBot: record.metadata?.isBot || false,
     }))
 
     res.json({

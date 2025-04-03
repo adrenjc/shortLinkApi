@@ -14,6 +14,9 @@ const sslService = require("./src/services/sslService")
 
 const app = express()
 
+// 配置应用信任代理，这样可以从请求头中获取真实的客户端IP
+app.set("trust proxy", true)
+
 // 中间件
 app.use(cors()) // 允许跨域
 app.use(express.json()) // 解析JSON请求体

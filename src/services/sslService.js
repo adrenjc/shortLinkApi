@@ -73,7 +73,57 @@ class SSLService {
 server {
     listen 80;
     server_name ${domain};
-    include /etc/nginx/ssl/domains/common.conf;
+    
+    # ACME challenge - 用于Let's Encrypt证书验证
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+        try_files $uri =404;
+    }
+    
+    # 短链跳转接口
+    location ~* ^/r/(.+)$ {
+        proxy_pass http://backend/api/r/$1;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $http_host;
+
+        # 禁用缓存
+        proxy_no_cache 1;
+        proxy_cache_bypass 1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "-1";
+
+        # 添加安全相关的响应头
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+
+        proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
+        proxy_next_upstream_tries 3;
+
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 10s;
+        proxy_read_timeout 10s;
+
+        limit_req zone=redirect burst=200 nodelay;
+    }
+
+    # 对于非短链接请求返回404
+    location / {
+        return 404;
+    }
+    
+    # 日志配置
+    access_log /var/log/nginx/custom_domains.access.log detailed buffer=64k flush=5s;
+    error_log /var/log/nginx/custom_domains.error.log;
 }
 
 server {
@@ -82,9 +132,57 @@ server {
     
     ssl_certificate ${this.sslDir}/${domain}/fullchain.pem;
     ssl_certificate_key ${this.sslDir}/${domain}/key.pem;
+    
+    # ACME challenge - 用于Let's Encrypt证书验证
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+        try_files $uri =404;
+    }
+    
+    # 短链跳转接口
+    location ~* ^/r/(.+)$ {
+        proxy_pass http://backend/api/r/$1;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
 
-    # 引入通用配置
-    include /etc/nginx/ssl/domains/common.conf;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $http_host;
+
+        # 禁用缓存
+        proxy_no_cache 1;
+        proxy_cache_bypass 1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "-1";
+
+        # 添加安全相关的响应头
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+
+        proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
+        proxy_next_upstream_tries 3;
+
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 10s;
+        proxy_read_timeout 10s;
+
+        limit_req zone=redirect burst=200 nodelay;
+    }
+
+    # 对于非短链接请求返回404
+    location / {
+        return 404;
+    }
+    
+    # 日志配置
+    access_log /var/log/nginx/custom_domains.access.log detailed buffer=64k flush=5s;
+    error_log /var/log/nginx/custom_domains.error.log;
 }
 `
       // 写入配置文件

@@ -1,6 +1,25 @@
 const AuditLog = require("../models/AuditLog")
 const User = require("../models/User")
 
+/**
+ * 从请求中获取客户端真实IP地址
+ * @param {object} req - 请求对象
+ * @returns {string} - 真实IP地址
+ */
+const getClientIp = (req) => {
+  // 从各种可能的请求头中获取
+  const xForwardedFor = req.headers["x-forwarded-for"]
+  const realIp = req.headers["x-real-ip"]
+
+  if (xForwardedFor) {
+    // X-Forwarded-For 可能包含多个IP，第一个是客户端真实IP
+    const ips = xForwardedFor.split(",").map((ip) => ip.trim())
+    return ips[0] || realIp || req.ip || "unknown"
+  }
+
+  return realIp || req.ip || "unknown"
+}
+
 // 创建审计日志
 const createAuditLog = async ({
   userId,
@@ -22,7 +41,7 @@ const createAuditLog = async ({
       resourceId,
       description,
       metadata,
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req),
       userAgent: req.get("user-agent"),
       status,
       errorMessage,
